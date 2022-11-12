@@ -1,2 +1,2 @@
 #!/bin/sh
-cargo test -- --nocapture
+cargo test test_api -- --nocapture

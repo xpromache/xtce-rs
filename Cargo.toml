@@ -1,17 +1,19 @@
 [package]
 name = "xtce-rs"
 version = "0.1.0"
-authors = ["Nicolae Mihalache <nicolae.mihalache@spaceapplications.com>"]
-edition = "2018"
+authors = ["Nicolae Mihalache <xpromache@gmail.com>"]
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-roxmltree = "0.11.0"
+roxmltree = "0.15.0"
 bimap = "0.4.0"
 hex = "0.4.2"
 enum-map = "0.6.2"
+env_logger = "0.9.1"
+log = "0.4.17"
 
 [dependencies.lasso]
-version = "0.2.2"
+version = "0.6"
 features = ["multi-threaded"]

@@ -1,15 +1,14 @@
-#![feature(test)]
-
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use std::fmt::Formatter;
 use std::fmt;
+use std::fmt::Formatter;
 
-use lasso::{ThreadedRodeo, Key};
+use lasso::{Key, ThreadedRodeo};
 
 pub(crate) type NameIdx = lasso::Spur;
+
+pub type NameDb = Arc<ThreadedRodeo<NameIdx>>;
 
 #[derive(Clone, Default, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct QualifiedName(Vec<NameIdx>);
@@ -33,10 +32,28 @@ impl QualifiedName {
     pub fn pop(&mut self) -> Option<NameIdx> {
         self.0.pop()
     }
+
+    pub fn to_string(&self, name_db: &NameDb) -> String {
+        let v = &self.0;
+        if v.len() == 0 {
+            String::from("/")
+        } else {
+            let mut r: String = String::new();
+            for idx in v {
+                r = r
+                    + "/"
+                    + match name_db.try_resolve(idx) {
+                        Some(name) => name,
+                        None => "[unknown]",
+                    }
+            }
+            r
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Enum)]
-pub(crate) enum NameReferenceType {
+pub enum NameReferenceType {
     ParameterType,
     Parameter,
     SequenceContainer,
@@ -46,12 +63,11 @@ pub(crate) enum NameReferenceType {
 impl std::fmt::Debug for QualifiedName {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for idx in &self.0 {
-            write!(f, "/{:?}", unsafe { idx.into_usize() })?;
+            write!(f, "/{:?}", idx.into_usize())?;
         }
         Ok(())
     }
 }
-
 
 #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash, Debug)]
 pub struct Index(std::num::NonZeroU32);
@@ -67,12 +83,14 @@ impl Index {
 
 type SpaceSystemIdx = Index;
 type ParameterTypeIdx = Index;
+type ParameterIdx = Index;
+type ContainerIdx = Index;
 
 #[derive(Clone, Debug, Default)]
 pub struct NameDescription {
-    pub(crate) name: NameIdx,
-    pub(crate) short_description: Option<String>,
-    pub(crate) long_description: Option<String>,
+    pub name: NameIdx,
+    pub short_description: Option<String>,
+    pub long_description: Option<String>,
 }
 
 impl NameDescription {
@@ -81,7 +99,7 @@ impl NameDescription {
     }
 }
 
-
+#[derive(Debug)]
 pub enum DataSource {
     /**
      * used for data acquired from outside, parameters of this type cannot be changed
@@ -180,7 +198,7 @@ pub enum StringSizeType {
     /**
      * {@link #getFromBinaryTransformAlgorithm} will be used to decode the data
      */
-    Custom
+    Custom,
 }
 
 #[derive(Debug)]
@@ -189,7 +207,7 @@ pub struct StringDataEncoding {
     pub size_in_bits: u32,
     pub sizeInBitsOfSizeTag: u8,
     pub encoding: String,
-    pub termination_char: u8
+    pub termination_char: u8,
 }
 
 #[derive(Debug)]
@@ -221,7 +239,6 @@ pub struct BinaryParameterType {
     encoding: DataEncoding,
 }
 
-
 pub struct EnumeratedValue {
     pub(crate) value: i64,
     pub(crate) max_value: i64,
@@ -232,7 +249,7 @@ pub struct EnumeratedValue {
 
 impl std::fmt::Debug for EnumeratedValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        if (self.value != self.max_value) {
+        if self.value != self.max_value {
             write!(f, "[{}-{}]", self.value, self.max_value)?;
         } else {
             write!(f, "{}", self.value)?;
@@ -263,13 +280,13 @@ pub struct FloatParameterType {
 
 #[derive(Debug)]
 pub struct IntegerParameterType {
-    pub(crate) name: NameDescription,
-    pub(crate) size_in_bits: u32,
-    pub(crate) signed: bool,
-    pub(crate) encoding: DataEncoding,
-    pub(crate) default_alarm: Option<NumericAlarm>,
-    pub(crate) context_alarm: Vec<NumericContextAlarm>,
-    pub(crate) units: Vec<UnitType>,
+    pub name: NameDescription,
+    pub size_in_bits: u32,
+    pub signed: bool,
+    pub encoding: DataEncoding,
+    pub default_alarm: Option<NumericAlarm>,
+    pub context_alarm: Vec<NumericContextAlarm>,
+    pub units: Vec<UnitType>,
 }
 
 #[derive(Debug)]
@@ -289,7 +306,6 @@ pub struct BooleanParameterType {
 
 #[derive(Debug)]
 pub enum ParameterType {
-    None,
     Integer(IntegerParameterType),
     Float(FloatParameterType),
     String(StringParameterType),
@@ -299,46 +315,87 @@ pub enum ParameterType {
 }
 
 impl ParameterType {
-    fn name(&self) -> Option<NameIdx> {
-        match self { //TODO make this smarter
-            ParameterType::Integer(pt) => Some(pt.name.name),
-            ParameterType::Float(pt) => Some(pt.name.name),
-            ParameterType::String(pt) => Some(pt.name.name),
-            ParameterType::Binary(pt) => Some(pt.name.name),
-            ParameterType::Boolean(pt) => Some(pt.name.name),
-            ParameterType::Enumerated(pt) => Some(pt.name.name),
-            ParameterType::None => Option::None
+    pub fn name(&self) -> NameIdx {
+        match self {
+            //TODO make this smarter
+            ParameterType::Integer(pt) => pt.name.name,
+            ParameterType::Float(pt) => pt.name.name,
+            ParameterType::String(pt) => pt.name.name,
+            ParameterType::Binary(pt) => pt.name.name,
+            ParameterType::Boolean(pt) => pt.name.name,
+            ParameterType::Enumerated(pt) => pt.name.name,
         }
     }
 
     pub(crate) fn encoding(&self) -> &DataEncoding {
-        match self { //TODO make this smarter
+        match self {
+            //TODO make this smarter
             ParameterType::Integer(pt) => &pt.encoding,
             ParameterType::Float(pt) => &pt.encoding,
             ParameterType::String(pt) => &pt.encoding,
             ParameterType::Binary(pt) => &pt.encoding,
             ParameterType::Boolean(pt) => &pt.encoding,
             ParameterType::Enumerated(pt) => &pt.encoding,
-            ParameterType::None => &DataEncoding::None
         }
     }
 }
 
 pub struct Parameter {
-    name: NameDescription,
-    ptype: Arc<ParameterType>,
-    data_source: DataSource,
+    pub ndescr: NameDescription,
+    pub ptype: Option<ParameterTypeIdx>,
+    pub data_source: DataSource,
 }
 
-pub struct SequenceContainer {}
+impl Parameter {
+    pub fn name(&self) -> NameIdx {
+        return self.ndescr.name;
+    }
+}
+
+pub struct SequenceContainer {
+    pub ndescr: NameDescription,
+    pub base_container: Option<ContainerIdx>,
+    //abstract is a reserved word in Rust
+    pub abstract_: bool,
+    pub entries: Vec<ContainerEntry>,
+    
+}
+
+impl SequenceContainer {
+    pub fn name(&self) -> NameIdx {
+        return self.ndescr.name;
+    }
+}
+
+pub enum ContainerEntry {
+    ParameterRef(ParameterRefEntry),
+    ContainerRef(ContainerRefEntry),
+    IndirectParameterRef(IndirectParameterRefEntry),
+    ArrayParameterRef(ArrayParameterRefEntry)
+}
+
+pub struct ParameterRefEntry {
+
+}
+pub struct  ContainerRefEntry {
+
+}
+
+pub struct  IndirectParameterRefEntry {
+
+}
+
+pub struct ArrayParameterRefEntry {
+
+}
 
 pub struct SpaceSystem {
     id: SpaceSystemIdx,
-    pub(crate) fqn: QualifiedName,
-    pub(crate) name: NameDescription,
-    pub(crate) parameters: HashMap<NameIdx, Parameter>,
-    pub(crate) parameter_types: HashMap<NameIdx, ParameterTypeIdx>,
-    pub(crate) sequence_containers: HashMap<NameIdx, SequenceContainer>,
+    pub fqn: QualifiedName,
+    pub name: NameDescription,
+    pub parameters: HashMap<NameIdx, ParameterIdx>,
+    pub parameter_types: HashMap<NameIdx, ParameterTypeIdx>,
+    pub containers: HashMap<NameIdx, ContainerIdx>,
 }
 
 impl SpaceSystem {
@@ -349,7 +406,7 @@ impl SpaceSystem {
             fqn,
             parameters: HashMap::new(),
             parameter_types: HashMap::new(),
-            sequence_containers: HashMap::new(),
+            containers: HashMap::new(),
         }
     }
 
@@ -358,18 +415,25 @@ impl SpaceSystem {
     }
 }
 
-
-
 pub struct MissionDatabase {
-    name_db: Arc<ThreadedRodeo::<NameIdx>>,
-    pub(crate) space_systems: Vec<SpaceSystem>,
+    name_db: NameDb,
+    pub space_systems: Vec<SpaceSystem>,
     space_systems_qn: HashMap<QualifiedName, SpaceSystemIdx>,
-    parameter_types: Vec<ParameterType>,
+    pub parameter_types: Vec<ParameterType>,
+    pub parameters: Vec<Parameter>,
+    pub containers: Vec<SequenceContainer>,
 }
 
 impl MissionDatabase {
     pub fn new() -> Self {
-        let mut mdb = MissionDatabase { name_db: Arc::new(ThreadedRodeo::<NameIdx>::new()), space_systems: Vec::new(), space_systems_qn: HashMap::new(), parameter_types: Vec::new() };
+        let mut mdb = MissionDatabase {
+            name_db: Arc::new(ThreadedRodeo::<NameIdx>::new()),
+            space_systems: Vec::new(),
+            space_systems_qn: HashMap::new(),
+            parameter_types: Vec::new(),
+            parameters: Vec::new(),
+            containers: Vec::new(),
+        };
         //create the root space system - it has "" name and an empty qualified name
         let ss_idx = SpaceSystemIdx::new(0);
         let ss = SpaceSystem::new(ss_idx, mdb.name_db.get_or_intern(""), QualifiedName::empty());
@@ -382,7 +446,7 @@ impl MissionDatabase {
     pub fn new_space_system(&mut self, fqn: QualifiedName) -> Result<SpaceSystemIdx, String> {
         let ss_id = SpaceSystemIdx::new(self.space_systems.len());
 
-        if (self.space_systems_qn.contains_key(&fqn)) {
+        if self.space_systems_qn.contains_key(&fqn) {
             return Err("A spacesystem with the given fqn already exists".to_string());
         }
 
@@ -393,60 +457,123 @@ impl MissionDatabase {
                 self.space_systems_qn.insert(fqn, ss_id);
                 Ok(ss_id)
             }
-            None => Err("Empty names are not allowed".to_owned())
+            None => Err("Empty names are not allowed".to_owned()),
         }
     }
 
-    pub fn add_parameter_type(&mut self, fqn: &QualifiedName, ptype: ParameterType) -> Option<ParameterTypeIdx> {
-        let ptype_name = ptype.name()?;
+    pub fn add_parameter_type(
+        &mut self,
+        space_system: &QualifiedName,
+        ptype: ParameterType,
+    ) -> ParameterTypeIdx {
+        let ptype_name = ptype.name();
 
         let idx = ParameterTypeIdx::new(self.parameter_types.len());
         self.parameter_types.push(ptype);
 
-        let ss = self.get_space_system_mut(fqn).unwrap();
+        let ss = self.get_space_system_mut(space_system).unwrap();
         ss.parameter_types.insert(ptype_name, idx);
-        Some(idx)
+        idx
     }
 
-    pub(crate) fn resolve_reference(&self, tref: NameReferenceType, nref: &str, ss_qn: &QualifiedName) -> Option<NameIdx> {
-        Option::None
+    pub fn add_parameter(
+        &mut self,
+        space_system: &QualifiedName,
+        param: Parameter,
+    ) -> ParameterIdx {
+        let param_name = param.name();
+
+        let idx = ParameterIdx::new(self.parameters.len());
+        self.parameters.push(param);
+
+        let ss = self.get_space_system_mut(space_system).unwrap();
+        ss.parameters.insert(param_name, idx);
+        idx
+    }
+
+    pub fn add_seq_container(
+        &mut self,
+        space_system: &QualifiedName,
+        container: SequenceContainer,
+    ) -> ParameterIdx {
+        let name = container.name();
+
+        let idx = ContainerIdx::new(self.parameters.len());
+        self.containers.push(container);
+
+        let ss = self.get_space_system_mut(space_system).unwrap();
+        ss.containers.insert(name, idx);
+        idx
     }
 
     pub fn get_space_system_mut(&mut self, fqn: &QualifiedName) -> Option<&mut SpaceSystem> {
         match self.space_systems_qn.get_mut(fqn) {
             None => None,
-            Some(idx) => self.space_systems.get_mut(idx.index())
+            Some(idx) => self.space_systems.get_mut(idx.index()),
         }
     }
 
-    pub fn get_parameter_type(&self, idx: ParameterTypeIdx) -> Option<&ParameterType> {
-        self.parameter_types.get(idx.index())
-    }
-
-    pub fn qn_to_string(&self, fqn: &QualifiedName) -> String {
-        let v = &fqn.0;
-        if v.len() == 0 {
-            String::from("/")
-        } else {
-            let mut r: String = String::new();
-            for idx in v {
-                r = r + "/" + match self.name_db.try_resolve(idx) {
-                    Some(name) => name,
-                    None => "[unknown]"
-                }
-            }
-            r
+    pub fn get_space_system(&self, fqn: &QualifiedName) -> Option<&SpaceSystem> {
+        match self.space_systems_qn.get(fqn) {
+            None => None,
+            Some(idx) => self.space_systems.get(idx.index()),
         }
     }
-    pub fn name_to_string(&self, idx: NameIdx) -> Option<&str> {
-        self.name_db.try_resolve(&idx)
+
+    pub fn get_container(&self, idx: ContainerIdx) -> &SequenceContainer {
+        &self.containers[idx.index()]
     }
 
+    pub fn get_container_idx(
+        &self,
+        space_system: &QualifiedName,
+        name: NameIdx,
+    ) -> Option<ContainerIdx> {
+        self.get_space_system(space_system).and_then(|ss| ss.containers.get(&name)).map(|idx| *idx)
+    }
+
+    pub fn get_parameter_type(&self, idx: ParameterTypeIdx) -> &ParameterType {
+        &self.parameter_types[idx.index()]
+    }
+
+    pub fn get_parameter_type_idx(
+        &self,
+        space_system: &QualifiedName,
+        name: NameIdx,
+    ) -> Option<ParameterTypeIdx> {
+        self.get_space_system(space_system)
+            .and_then(|ss| ss.parameter_types.get(&name))
+            .map(|idx| *idx)
+    }
+
+    pub fn get_parameter(&self, idx: ParameterTypeIdx) -> &Parameter {
+        &self.parameters[idx.index()]
+    }
+
+    pub fn get_parameter_idx(
+        &self,
+        space_system: &QualifiedName,
+        name: NameIdx,
+    ) -> Option<ParameterTypeIdx> {
+        self.get_space_system(space_system).and_then(|ss| ss.parameters.get(&name)).map(|idx| *idx)
+    }
+
+    pub fn name2str(&self, idx: NameIdx) -> &str {
+        self.name_db.try_resolve(&idx).unwrap_or("<none>")
+    }
+
+    pub fn qn_to_string(&self, qn: &QualifiedName) -> String {
+        qn.to_string(&self.name_db)
+    }
 
     pub fn get_or_intern(&mut self, name_str: &str) -> NameIdx {
         self.name_db.get_or_intern(name_str)
     }
-    pub fn name_db(&mut self) -> Arc<ThreadedRodeo::<NameIdx>> {
+    pub fn name_db(&mut self) -> NameDb {
         Arc::clone(&self.name_db)
+    }
+
+    pub fn name_db_ref(&self) -> &NameDb {
+        &self.name_db
     }
 }

@@ -1,4 +1,4 @@
-use roxmltree::{TextPos, Node, NodeId, Document};
+use roxmltree::{Node};
 
 use super::*;
 use utils::*;
@@ -19,7 +19,7 @@ pub(super) fn add_parameter_type(mdb: &mut MissionDatabase, ctx: &ParseContext) 
         "AggregateParameterType" =>  read_aggregate_parameter_type(mdb, path, &node)?,*/
         _ => {
             println!("ignoring read_parameter_type '{}'", ctx.node.tag_name().name());
-            ParameterType::None
+           return Ok(())
         }
     };
     mdb.add_parameter_type(ctx.path, ptype);
@@ -40,7 +40,7 @@ pub(super) fn read_integer_parameter_type(mdb: &MissionDatabase, ctx: &ParseCont
             }
             "UnitSet" => read_unit_set(&mut units, &cnode)?,
             "" | "LongDescription" => {}
-            _ => println!("ignoring read_integer_parameter_type '{}'", cnode.tag_name().name())
+            _ => log::warn!("ignoring integer parameter type  unknown property '{}'", cnode.tag_name().name())
         };
     }
 

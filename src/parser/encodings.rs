@@ -2,10 +2,10 @@ use super::*;
 use utils::*;
 
 use crate::mdb::*;
-use roxmltree::{TextPos, Node, NodeId, Document};
+use roxmltree::{Node};
 
 
-pub(super) fn read_integer_data_encoding(mdb: &MissionDatabase, path: &QualifiedName, node: &Node, base_encoding: &DataEncoding) -> Result<IntegerDataEncoding, XtceError> {
+pub(super) fn read_integer_data_encoding(_mdb: &MissionDatabase, _path: &QualifiedName, node: &Node, base_encoding: &DataEncoding) -> Result<IntegerDataEncoding, XtceError> {
     //  println!("integer_data_encoding: {:?}", node);
     let size_in_bits = read_attribute::<u8>(node, "sizeInBits")?.unwrap_or_else(|| if let DataEncoding::Integer(ide) = base_encoding { ide.size_in_bits } else { 8 });
     let encoding;
@@ -33,7 +33,7 @@ pub(super) fn read_integer_data_encoding(mdb: &MissionDatabase, path: &Qualified
     Ok(IntegerDataEncoding { size_in_bits, encoding })
 }
 
-pub(super) fn read_float_data_encoding(mdb: &MissionDatabase, path: &QualifiedName, node: &Node, base_encoding: &DataEncoding) -> Result<FloatDataEncoding, XtceError> {
+pub(super) fn read_float_data_encoding(_mdb: &MissionDatabase, _path: &QualifiedName, node: &Node, base_encoding: &DataEncoding) -> Result<FloatDataEncoding, XtceError> {
     let size_in_bits = read_attribute::<u8>(node, "sizeInBits")?.unwrap_or_else(|| if let DataEncoding::Float(fde) = base_encoding { fde.size_in_bits } else { 32 });
     if size_in_bits != 32 && size_in_bits != 64 {
         return Err(get_parse_error(format!("Invalid size in bits {}, should be 32 or 64", size_in_bits), &node).into());
@@ -62,7 +62,7 @@ pub(super) fn read_float_data_encoding(mdb: &MissionDatabase, path: &QualifiedNa
 }
 
 
-pub(super) fn read_string_data_encoding(mdb: &MissionDatabase, path: &QualifiedName, node: &Node, base_encoding: &DataEncoding) -> Result<StringDataEncoding, XtceError> {
+pub(super) fn read_string_data_encoding(_mdb: &MissionDatabase, _path: &QualifiedName, node: &Node, base_encoding: &DataEncoding) -> Result<StringDataEncoding, XtceError> {
     let encoding = read_attribute::<String>(node, "encoding")?
         .unwrap_or_else(|| if let DataEncoding::String(sde) = base_encoding { sde.encoding.to_owned() } else { "UTF-8".to_owned() });
     let mut size_in_bits = 0;
@@ -86,8 +86,8 @@ pub(super) fn read_string_data_encoding(mdb: &MissionDatabase, path: &QualifiedN
                         },
                         "TerminationChar" => {
                             let hexv = read_mandatory_text::<String>(&cnode1)?;
-                            let v = hex::decode(&hexv).or_else(|e| return Err(get_parse_error(format!("Cannot decode string as hex: '{}'", &hexv), &cnode1)))?;
-                            if(v.len()!=1) {
+                            let v = hex::decode(&hexv).or_else(|_e| return Err(get_parse_error(format!("Cannot decode string as hex: '{}'", &hexv), &cnode1)))?;
+                            if v.len()!=1 {
                                 return Err(get_parse_error(format!("Expected hex byte (2 characters): '{}'", hexv), &cnode1).into());
                             }
                             termination_char = v[0];

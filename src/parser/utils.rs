@@ -1,6 +1,6 @@
 use super::*;
 
-use roxmltree::{TextPos, Node, NodeId, Document};
+use roxmltree::{Node};
 
 
 pub(super) fn get_parse_error<S: AsRef<str>>(msg: S, node: &Node) -> XtceParseError {
