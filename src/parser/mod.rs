@@ -116,6 +116,7 @@ fn build_mdb(mdb: &mut MissionDatabase, name_tree: &NameTree, doc: &Document) ->
         }
     }
     while !unresolved.is_empty() {
+        println!("loooping---------------------------------------- unresolved: {}", unresolved.len());
         let mut unresolved1: Vec<(ParseContext, Reference)> = vec![];
 
         for (ctx, _) in &unresolved {

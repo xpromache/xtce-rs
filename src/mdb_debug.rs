@@ -1,8 +1,8 @@
 use crate::mdb::*;
 use core::fmt;
-use std::fmt::Formatter;
+use std::fmt::{Formatter};
 
-struct MdbItemDebug<'a, T> {
+pub struct MdbItemDebug<'a, T> {
     item: &'a T,
     mdb: &'a MissionDatabase,
 }
@@ -41,46 +41,13 @@ fn write_debug_units(f: &mut Formatter<'_>, units: &Vec<UnitType>) -> fmt::Resul
     Ok(())
 }
 
-impl std::fmt::Debug for MdbItemDebug<'_, ParameterType> {
+impl std::fmt::Debug for MdbItemDebug<'_, DataType> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mdb = self.mdb;
-        match self.item {
-            ParameterType::Integer(ipt) => {
-                write!(f, "IntegerParameterType(name: {}, ", mdb.name2str(ipt.name.name))?;
-                write!(f, "encoding: {:?}", self.item.encoding())?;
-                write_debug_units(f, &ipt.units)?;
-                write!(f, ")")?;
-            }
-            ParameterType::Float(fpt) => {
-                write!(f, "FloatParameterType(name: {}, ", mdb.name2str(fpt.name.name))?;
-                write!(f, "encoding: {:?}", self.item.encoding())?;
-                write_debug_units(f, &fpt.units)?;
-                write!(f, ")")?;
-            }
-            ParameterType::Enumerated(ept) => {
-                write!(f, "EnumerateParameterType(name: {}, ", mdb.name2str(ept.name.name))?;
-                write!(f, "encoding: {:?}, ", self.item.encoding())?;
-                write!(f, "enumerations: {:?}", ept.enumeration)?;
-                write_debug_units(f, &ept.units)?;
-                write!(f, ")")?;
-            }
-            ParameterType::Boolean(bpt) => {
-                write!(f, "BooleanParameterType(name: {}, ", mdb.name2str(bpt.name.name))?;
-                write!(f, "encoding: {:?}, ", self.item.encoding())?;
-                write!(
-                    f,
-                    "zeroStringValue: {}, oneStringValue: {}",
-                    bpt.zero_string_value, bpt.one_string_value
-                )?;
-                write_debug_units(f, &bpt.units)?;
-                write!(f, ")")?;
-            }
-            ParameterType::String(spt) => {
-                write!(f, "StringParameterType(name: {}, ", mdb.name2str(spt.name.name))?;
-                write!(f, "encoding: {:?}, ", self.item.encoding())?;
-            }
-            _ => {}
-        };
+        let dtype = self.item;
+        write!(f, "DataType(name: {}, {:?}", mdb.name2str(dtype.name()), dtype.type_data)?;
+        write!(f, "encoding: {:?}", dtype.encoding)?;
+        write!(f, ")")?;
         Ok(())
     }
 }
@@ -102,9 +69,30 @@ impl std::fmt::Debug for MdbItemDebug<'_, Parameter> {
 
 impl std::fmt::Debug for MdbItemDebug<'_, SequenceContainer> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let p = self.item;
-        write!(f, "SequenceContainer(name: {}, ", self.mdb.name2str(p.name()))?;
-        write!(f, ")")?;
+        let container = self.item;
+        let mdb  = self.mdb;
+        write!(f, "SequenceContainer(name: {}", mdb.name2str(container.name()))?;
+        if let Some((cidx, mc)) = &container.base_container {
+            let bc = mdb.get_container(*cidx);
+            write!(f, ", base: {}", mdb.name2str(bc.name()))?;
+        }
+        writeln!(f, "):")?;
+        for entry in container.entries.iter() {
+            match &entry.location_in_container {
+                Some(lic) =>  write!(f, "\t\t\t|-> {:?} ", lic)?,
+                None => write!(f, "\t\t\t|->")?
+            }
+            match entry.data {
+                ContainerEntryData::ParameterRef(pidx) => {
+                    let para = mdb.get_parameter(pidx);
+                    writeln!(f, "{}", mdb.name2str(para.name()))?;
+                },
+                ContainerEntryData::ContainerRef(_) => todo!(),
+                ContainerEntryData::IndirectParameterRef(_) => todo!(),
+                ContainerEntryData::ArrayParameterRef(_) => todo!(),
+            }
+        }
+        
 
         Ok(())
     }

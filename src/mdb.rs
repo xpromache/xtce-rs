@@ -10,6 +10,19 @@ pub(crate) type NameIdx = lasso::Spur;
 
 pub type NameDb = Arc<ThreadedRodeo<NameIdx>>;
 
+
+pub struct MissionDatabase {
+    //TBD: we could change these vectors into Vec32 (from the mediumvec crate) to reduce the size of the MissionDatabase struct
+    // (to fit better in the CPU cache). TODO: test performance after all is implemented    
+    pub parameter_types: Vec<DataType>,
+    pub parameters: Vec<Parameter>,
+    pub containers: Vec<SequenceContainer>,
+    name_db: NameDb,
+    pub space_systems: Vec<SpaceSystem>,
+    space_systems_qn: HashMap<QualifiedName, SpaceSystemIdx>,
+}
+
+
 #[derive(Clone, Default, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct QualifiedName(Vec<NameIdx>);
 
@@ -81,10 +94,10 @@ impl Index {
     }
 }
 
-type SpaceSystemIdx = Index;
-type ParameterTypeIdx = Index;
-type ParameterIdx = Index;
-type ContainerIdx = Index;
+pub type SpaceSystemIdx = Index;
+pub type DataTypeIdx = Index;
+pub type ParameterIdx = Index;
+pub type ContainerIdx = Index;
 
 #[derive(Clone, Debug, Default)]
 pub struct NameDescription {
@@ -98,6 +111,8 @@ impl NameDescription {
         NameDescription { name, short_description: None, long_description: None }
     }
 }
+
+
 
 #[derive(Debug)]
 pub enum DataSource {
@@ -233,10 +248,8 @@ pub struct EnumerationAlarm {}
 pub struct EnumerationContextAlarm {}
 
 #[derive(Debug)]
-pub struct BinaryParameterType {
-    name: NameDescription,
-    size_in_bits: u32,
-    encoding: DataEncoding,
+pub struct BinaryDataType {
+    pub size_in_bits: u32,
 }
 
 pub struct EnumeratedValue {
@@ -258,126 +271,152 @@ impl std::fmt::Debug for EnumeratedValue {
     }
 }
 
-#[derive(Debug)]
-pub struct EnumeratedParameterType {
-    pub(crate) name: NameDescription,
-    pub(crate) encoding: DataEncoding,
-    pub(crate) enumeration: Vec<EnumeratedValue>,
-    pub(crate) default_alarm: Option<EnumerationAlarm>,
-    pub(crate) context_alarm: Vec<EnumerationContextAlarm>,
-    pub(crate) units: Vec<UnitType>,
-}
 
 #[derive(Debug)]
-pub struct FloatParameterType {
-    pub(crate) name: NameDescription,
-    pub(crate) size_in_bits: u32,
-    pub(crate) encoding: DataEncoding,
-    pub(crate) default_alarm: Option<NumericAlarm>,
-    pub(crate) context_alarm: Vec<NumericContextAlarm>,
-    pub(crate) units: Vec<UnitType>,
-}
-
-#[derive(Debug)]
-pub struct IntegerParameterType {
-    pub name: NameDescription,
-    pub size_in_bits: u32,
-    pub signed: bool,
+pub struct DataType {
+    pub ndescr: NameDescription,
     pub encoding: DataEncoding,
-    pub default_alarm: Option<NumericAlarm>,
-    pub context_alarm: Vec<NumericContextAlarm>,
+    pub type_data: TypeData,
     pub units: Vec<UnitType>,
 }
 
 #[derive(Debug)]
-pub struct StringParameterType {
-    pub(crate) name: NameDescription,
-    pub(crate) encoding: DataEncoding,
+pub enum TypeData {
+    Integer(IntegerDataType),
+    Float(FloatDataType),
+    String(StringDataType),
+    Binary(BinaryDataType),
+    Boolean(BooleanDataType),
+    Enumerated(EnumeratedDataType),
+    Aggregate(AggregateDataType),
+    Array(ArrayDataType),
+    AbsoluteTime(AbsoluteTimeDataType),
 }
-
-#[derive(Debug)]
-pub struct BooleanParameterType {
-    pub(crate) name: NameDescription,
-    pub(crate) encoding: DataEncoding,
-    pub(crate) one_string_value: String,
-    pub(crate) zero_string_value: String,
-    pub(crate) units: Vec<UnitType>,
-}
-
-#[derive(Debug)]
-pub enum ParameterType {
-    Integer(IntegerParameterType),
-    Float(FloatParameterType),
-    String(StringParameterType),
-    Binary(BinaryParameterType),
-    Boolean(BooleanParameterType),
-    Enumerated(EnumeratedParameterType),
-}
-
-impl ParameterType {
-    pub fn name(&self) -> NameIdx {
-        match self {
-            //TODO make this smarter
-            ParameterType::Integer(pt) => pt.name.name,
-            ParameterType::Float(pt) => pt.name.name,
-            ParameterType::String(pt) => pt.name.name,
-            ParameterType::Binary(pt) => pt.name.name,
-            ParameterType::Boolean(pt) => pt.name.name,
-            ParameterType::Enumerated(pt) => pt.name.name,
-        }
-    }
-
-    pub(crate) fn encoding(&self) -> &DataEncoding {
-        match self {
-            //TODO make this smarter
-            ParameterType::Integer(pt) => &pt.encoding,
-            ParameterType::Float(pt) => &pt.encoding,
-            ParameterType::String(pt) => &pt.encoding,
-            ParameterType::Binary(pt) => &pt.encoding,
-            ParameterType::Boolean(pt) => &pt.encoding,
-            ParameterType::Enumerated(pt) => &pt.encoding,
-        }
+impl NamedItem for DataType {
+    fn name_descr(&self) -> &NameDescription {
+        &self.ndescr
     }
 }
 
+
+#[derive(Debug)]
+pub struct EnumeratedDataType {
+    pub enumeration: Vec<EnumeratedValue>,
+    pub default_alarm: Option<EnumerationAlarm>,
+    pub context_alarm: Vec<EnumerationContextAlarm>,
+}
+
+#[derive(Debug)]
+pub struct FloatDataType {
+    pub size_in_bits: u32,
+    pub default_alarm: Option<NumericAlarm>,
+    pub context_alarm: Vec<NumericContextAlarm>,
+}
+
+#[derive(Debug)]
+pub struct IntegerDataType {
+    pub size_in_bits: u32,
+    pub signed: bool,
+    pub default_alarm: Option<NumericAlarm>,
+    pub context_alarm: Vec<NumericContextAlarm>,
+}
+
+
+#[derive(Debug)]
+pub struct StringDataType {
+}
+
+#[derive(Debug)]
+pub struct BooleanDataType {
+    pub one_string_value: String,
+    pub zero_string_value: String,
+}
+
+#[derive(Debug)]
+pub struct AggregateDataType {
+    pub members: Vec<Member>,
+}
+
+
+#[derive(Debug)]
+pub struct Member {
+    pub ndescr: NameDescription,
+    pub dtype: DataTypeIdx,
+}
+
+#[derive(Debug)]
+pub struct ArrayDataType {
+    pub dtype: DataTypeIdx,
+    pub dim: Vec<IntegerValue>,
+}
+
+
+
+
+pub trait NamedItem {
+    fn name_descr(&self) -> &NameDescription;
+    fn name(&self) -> NameIdx {
+        self.name_descr().name
+    }
+
+
+}
 pub struct Parameter {
     pub ndescr: NameDescription,
-    pub ptype: Option<ParameterTypeIdx>,
+    pub ptype: Option<DataTypeIdx>,
     pub data_source: DataSource,
 }
 
-impl Parameter {
-    pub fn name(&self) -> NameIdx {
-        return self.ndescr.name;
+impl NamedItem for Parameter {
+    fn name_descr(&self) -> &NameDescription {
+        &self.ndescr
     }
 }
 
 pub struct SequenceContainer {
     pub ndescr: NameDescription,
-    pub base_container: Option<ContainerIdx>,
+    pub base_container: Option<(ContainerIdx, Option<MatchCriteria>)>,
     //abstract is a reserved word in Rust
     pub abstract_: bool,
     pub entries: Vec<ContainerEntry>,
     
 }
 
-impl SequenceContainer {
-    pub fn name(&self) -> NameIdx {
-        return self.ndescr.name;
+impl NamedItem for SequenceContainer {
+    fn name_descr(&self) -> &NameDescription {
+        &self.ndescr
     }
 }
 
-pub enum ContainerEntry {
-    ParameterRef(ParameterRefEntry),
-    ContainerRef(ContainerRefEntry),
+
+pub struct ContainerEntry {
+    pub location_in_container: Option<LocationInContainerInBits>,
+    pub include_condition: Option<MatchCriteria>,
+    pub data: ContainerEntryData
+}
+
+pub enum ContainerEntryData {
+    ParameterRef(ParameterIdx),
+    ContainerRef(ContainerIdx),
     IndirectParameterRef(IndirectParameterRefEntry),
     ArrayParameterRef(ArrayParameterRefEntry)
 }
 
-pub struct ParameterRefEntry {
-
+#[derive(Debug)]
+pub struct LocationInContainerInBits {
+    pub reference_location: ReferenceLocationType,
+    pub location_in_bits: i32
 }
-pub struct  ContainerRefEntry {
+
+/// The location may be relative to the start of the container (containerStart),
+/// or relative to the end of the previous entry (previousEntry)
+#[derive(Debug)]
+pub enum ReferenceLocationType {
+    ContainerStart,
+    PreviousEntry
+}
+
+pub struct MatchCriteria {
 
 }
 
@@ -389,12 +428,27 @@ pub struct ArrayParameterRefEntry {
 
 }
 
+#[derive(Debug)]
+pub struct AbsoluteTimeDataType {}
+
+
+#[derive(Debug)]
+pub enum IntegerValue {
+    FixedValue(i64),
+    DynamicValue(DynamicValueType)
+}
+
+#[derive(Debug)]
+pub struct DynamicValueType {
+
+}
+
 pub struct SpaceSystem {
     id: SpaceSystemIdx,
     pub fqn: QualifiedName,
     pub name: NameDescription,
     pub parameters: HashMap<NameIdx, ParameterIdx>,
-    pub parameter_types: HashMap<NameIdx, ParameterTypeIdx>,
+    pub parameter_types: HashMap<NameIdx, DataTypeIdx>,
     pub containers: HashMap<NameIdx, ContainerIdx>,
 }
 
@@ -413,15 +467,6 @@ impl SpaceSystem {
     pub fn name(&self) -> NameIdx {
         self.name.name
     }
-}
-
-pub struct MissionDatabase {
-    name_db: NameDb,
-    pub space_systems: Vec<SpaceSystem>,
-    space_systems_qn: HashMap<QualifiedName, SpaceSystemIdx>,
-    pub parameter_types: Vec<ParameterType>,
-    pub parameters: Vec<Parameter>,
-    pub containers: Vec<SequenceContainer>,
 }
 
 impl MissionDatabase {
@@ -464,11 +509,11 @@ impl MissionDatabase {
     pub fn add_parameter_type(
         &mut self,
         space_system: &QualifiedName,
-        ptype: ParameterType,
-    ) -> ParameterTypeIdx {
+        ptype: DataType,
+    ) -> DataTypeIdx {
         let ptype_name = ptype.name();
 
-        let idx = ParameterTypeIdx::new(self.parameter_types.len());
+        let idx = DataTypeIdx::new(self.parameter_types.len());
         self.parameter_types.push(ptype);
 
         let ss = self.get_space_system_mut(space_system).unwrap();
@@ -491,14 +536,14 @@ impl MissionDatabase {
         idx
     }
 
-    pub fn add_seq_container(
+    pub fn add_container(
         &mut self,
         space_system: &QualifiedName,
         container: SequenceContainer,
     ) -> ParameterIdx {
         let name = container.name();
 
-        let idx = ContainerIdx::new(self.parameters.len());
+        let idx = ContainerIdx::new(self.containers.len());
         self.containers.push(container);
 
         let ss = self.get_space_system_mut(space_system).unwrap();
@@ -532,7 +577,7 @@ impl MissionDatabase {
         self.get_space_system(space_system).and_then(|ss| ss.containers.get(&name)).map(|idx| *idx)
     }
 
-    pub fn get_parameter_type(&self, idx: ParameterTypeIdx) -> &ParameterType {
+    pub fn get_parameter_type(&self, idx: DataTypeIdx) -> &DataType {
         &self.parameter_types[idx.index()]
     }
 
@@ -540,13 +585,13 @@ impl MissionDatabase {
         &self,
         space_system: &QualifiedName,
         name: NameIdx,
-    ) -> Option<ParameterTypeIdx> {
+    ) -> Option<DataTypeIdx> {
         self.get_space_system(space_system)
             .and_then(|ss| ss.parameter_types.get(&name))
             .map(|idx| *idx)
     }
 
-    pub fn get_parameter(&self, idx: ParameterTypeIdx) -> &Parameter {
+    pub fn get_parameter(&self, idx: DataTypeIdx) -> &Parameter {
         &self.parameters[idx.index()]
     }
 
@@ -554,7 +599,7 @@ impl MissionDatabase {
         &self,
         space_system: &QualifiedName,
         name: NameIdx,
-    ) -> Option<ParameterTypeIdx> {
+    ) -> Option<DataTypeIdx> {
         self.get_space_system(space_system).and_then(|ss| ss.parameters.get(&name)).map(|idx| *idx)
     }
 
