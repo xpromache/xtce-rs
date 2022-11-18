@@ -4,17 +4,16 @@ use roxmltree::Node;
 
 use crate::{
     mdb::{
-        ContainerEntry, ContainerEntryData, IntegerValue, LocationInContainerInBits, MatchCriteria,
-        MissionDatabase, NameDescription, NameReferenceType, ReferenceLocationType,
-        SequenceContainer, ContainerIdx,
+        Comparison, ContainerEntry, ContainerEntryData, ContainerIdx, IntegerValue,
+        LocationInContainerInBits, MatchCriteria, MissionDatabase, NameReferenceType,
+        ReferenceLocationType, SequenceContainer,
     },
     parser::utils::{read_attribute, read_mandatory_attribute, read_name_description},
 };
 
 use super::{
-    nametree::NameTree,
-    utils::{get_parse_error, resolve_ref, read_integer_value},
-    ParseContext, XtceError,
+    utils::{get_parse_error},
+    ParseContext, XtceError, misc::{read_match_criteria, resolve_ref, read_integer_value},
 };
 
 pub(super) fn add_container(
@@ -111,7 +110,7 @@ fn read_common_entry_elements(
                 entry.location_in_container.replace(lic);
             }
             "IncludeCondition" => {
-                entry.include_condition.replace(read_match_criteria()?);
+                entry.include_condition.replace(read_match_criteria(mdb, ctx, &cnode)?);
             }
             _ => log::warn!("ignoring unknown  '{}'", cnode.tag_name().name()),
         };
@@ -149,11 +148,7 @@ fn read_location_in_container(
     Ok(loc)
 }
 
-fn read_match_criteria() -> Result<MatchCriteria, XtceError> {
-    let mc = MatchCriteria {};
 
-    Ok(mc)
-}
 
 impl FromStr for ReferenceLocationType {
     type Err = String;

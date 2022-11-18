@@ -1,8 +1,14 @@
-use crate::{mdb::{DataEncoding, IntegerDataEncoding, BinaryDataEncoding}, value::RawValue};
+use crate::{
+    mdb::{BinaryDataEncoding, DataEncoding, IntegerDataEncoding, IntegerEncodingType},
+    value::{RawValue, ValueUnion, ContainerPosition},
+};
 
-use super::{ProcCtx, MdbProcError};
+use super::{MdbProcError, ProcCtx};
 
-pub(crate) fn extract_encoding(encoding: &DataEncoding, ctx: &mut ProcCtx) ->  Result<RawValue, MdbProcError>  {
+pub(crate) fn extract_encoding(
+    encoding: &DataEncoding,
+    ctx: &mut ProcCtx,
+) -> Result<RawValue, MdbProcError> {
     match encoding {
         DataEncoding::Integer(ide) => extract_integer(ide, ctx),
         DataEncoding::Binary(bde) => extract_binary(bde, ctx),
@@ -10,51 +16,55 @@ pub(crate) fn extract_encoding(encoding: &DataEncoding, ctx: &mut ProcCtx) ->  R
         DataEncoding::Float(fde) => todo!(),
         DataEncoding::String(sde) => todo!(),
         DataEncoding::None => panic!("shouldn't be here"),
-        
-    };
-    todo!()
-}
-
-fn extract_integer(ide: &IntegerDataEncoding, ctx: &mut ProcCtx) ->  Result<RawValue, MdbProcError>  {
-/*
-    buffer.setByteOrder(ide.getByteOrder());
-    int numBits = ide.getSizeInBits();
-
-    long rv = buffer.getBits(numBits);
-    switch (ide.getEncoding()) {
-    case UNSIGNED:
-        // nothing to do
-        break;
-    case TWOS_COMPLEMENT:
-        int n = 64 - numBits;
-        // shift left to get the sign and back again
-        rv = (rv << n) >> n;
-        break;
-
-    case SIGN_MAGNITUDE:
-        boolean negative = ((rv >>> (numBits - 1) & 1L) == 1L);
-
-        if (negative) {
-            rv = rv & ((1 << (numBits - 1)) - 1); // remove the sign bit
-            rv = -rv;
-        }
-        break;
-    case ONES_COMPLEMENT:
-        negative = ((rv >>> (numBits - 1) & 1L) == 1L);
-        if (negative) {
-            n = 64 - numBits;
-            rv = (rv << n) >> n;
-            rv = ~rv;
-            rv = -rv;
-        }
-        break;
-    default: // shouldn't happen
-        throw new IllegalStateException();
     }
-    return getRawValue(ide, rv);
-    */
-    todo!()
 }
-fn extract_binary(bde: &BinaryDataEncoding, ctx: &mut ProcCtx) ->  Result<RawValue, MdbProcError>  {
+
+fn extract_integer(ide: &IntegerDataEncoding, ctx: &mut ProcCtx) -> Result<RawValue, MdbProcError> {
+    let mut bitbuf = &mut ctx.buf;
+
+    bitbuf.set_byte_order(ide.byte_order);
+    let numbits = ide.size_in_bits as usize;
+    let bit_offset = bitbuf.get_position() as u32;
+
+    let start_offset = ctx.start_offset;
+
+    let mut bv = bitbuf.get_bits(numbits);
+
+    let v = match ide.encoding {
+        IntegerEncodingType::Unsigned => ValueUnion::uint_value(numbits, bv),
+        IntegerEncodingType::TwosComplement => {
+            let n = 64 - numbits;
+            // shift left to get the sign and back again
+            let x = bv as i64;
+            ValueUnion::int_value(numbits, (x << n) >> n)
+        }
+        IntegerEncodingType::SignMagnitude => {
+            let negative = (bv >> (numbits - 1) & 1) == 1;
+
+            if negative {
+                let x = (bv & ((1 << (numbits - 1)) - 1)) as i64; // remove the sign bit
+                ValueUnion::int_value(numbits, -x)
+            } else {
+                ValueUnion::int_value(numbits, bv as i64)
+            }
+        }
+        IntegerEncodingType::OnesComplement => {
+            let negative = (bv >> (numbits - 1) & 1) == 1;
+            if negative {
+                let n = 64 - numbits;
+                let mut x = bv as i64;
+                x = (x << n) >> n;
+                x = !x;
+                ValueUnion::int_value(numbits, -x)
+            } else {
+                ValueUnion::int_value(numbits, bv as i64)
+            }
+        }
+    };
+    Ok(RawValue{v, extra: ContainerPosition { start_offset, bit_offset, bit_size: numbits as u32 }})
+
+}
+
+fn extract_binary(bde: &BinaryDataEncoding, ctx: &mut ProcCtx) -> Result<RawValue, MdbProcError> {
     todo!()
 }

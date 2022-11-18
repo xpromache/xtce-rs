@@ -22,7 +22,7 @@ impl std::fmt::Debug for MdbItemDebug<'_, SpaceSystem> {
 
         writeln!(f, "\t{} Parameter Types: ", ss.parameter_types.len())?;
         for (_, v) in &ss.parameter_types {
-            let pt = mdb.get_parameter_type(v.to_owned());
+            let pt = mdb.get_data_type(v.to_owned());
             writeln!(f, "\t\t {:?} ", MdbItemDebug { item: pt, mdb })?;
         }
         writeln!(f, "\t{} Parameters: ", ss.parameters.len())?;
@@ -41,12 +41,16 @@ fn write_debug_units(f: &mut Formatter<'_>, units: &Vec<UnitType>) -> fmt::Resul
     Ok(())
 }
 
+
 impl std::fmt::Debug for MdbItemDebug<'_, DataType> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mdb = self.mdb;
         let dtype = self.item;
         write!(f, "DataType(name: {}, {:?}", mdb.name2str(dtype.name()), dtype.type_data)?;
         write!(f, "encoding: {:?}", dtype.encoding)?;
+        if dtype.units.len() > 0 {
+            write_debug_units(f, &dtype.units)?;
+        }
         write!(f, ")")?;
         Ok(())
     }
@@ -57,7 +61,7 @@ impl std::fmt::Debug for MdbItemDebug<'_, Parameter> {
         let p = self.item;
         write!(f, "Parameter(name: {}, ", self.mdb.name2str(p.name()))?;
         if let Some(ptype_idx) = p.ptype {
-            let ptype = self.mdb.get_parameter_type(ptype_idx);
+            let ptype = self.mdb.get_data_type(ptype_idx);
             write!(f, "type: {}, ", self.mdb.name2str(ptype.name()))?;
         }
         write!(f, "data_source: {:?}", p.data_source)?;
@@ -75,6 +79,10 @@ impl std::fmt::Debug for MdbItemDebug<'_, SequenceContainer> {
         if let Some((cidx, mc)) = &container.base_container {
             let bc = mdb.get_container(*cidx);
             write!(f, ", base: {}", mdb.name2str(bc.name()))?;
+            if let Some(mc) = mc {
+                write!(f, ", matchCriteria: {:?}", MdbItemDebug{mdb, item:mc})?;
+            }
+            
         }
         writeln!(f, "):")?;
         for entry in container.entries.iter() {
@@ -121,5 +129,14 @@ impl std::fmt::Debug for MissionDatabase {
             writeln!(f, "{:?}", MdbItemDebug { item: ss, mdb: self })?;
         }
         Ok(())
+    }
+}
+
+impl std::fmt::Debug for MdbItemDebug<'_, MatchCriteria> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+       let mdb  = self.mdb;
+      
+       
+       Ok(())
     }
 }

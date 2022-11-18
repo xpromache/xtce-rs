@@ -1,5 +1,3 @@
-use std::fmt::Error;
-
 /// Allows to read and write bits from a byte array (byte[]) keeps a bit position and the extractions are relative to the
 /// position. It allows also to provide an offset (in bytes) inside the byte array and then the bit position is relative
 /// to the offset.
@@ -165,7 +163,7 @@ impl BitBuffer<'_> {
     }
 }
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 pub enum ByteOrder {
     BigEndian,
     LittleEndian,

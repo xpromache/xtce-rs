@@ -1,6 +1,6 @@
 use roxmltree::Node;
 
-use super::*;
+use super::{*, misc::resolve_ref};
 use utils::*;
 
 use encodings::*;
@@ -31,6 +31,7 @@ pub(super) fn add_parameter_type(
         encoding,
         units: read_unit_set(&ctx.node)?,
         type_data,
+        calibrator: None,
     };
 
     mdb.add_parameter_type(ctx.path, dtype);
@@ -43,6 +44,7 @@ pub(super) fn read_integer_parameter_type(
 ) -> Result<(DataEncoding, TypeData), XtceError> {
     let mut encoding = DataEncoding::None;
     let signed = read_attribute::<bool>(&ctx.node, "signed")?.unwrap_or(true);
+    let size_in_bits = read_attribute::<u32>(&ctx.node, "sizeInBits")?.unwrap_or(32);
 
     for cnode in ctx.node.children() {
         match cnode.tag_name().name() {
@@ -62,12 +64,8 @@ pub(super) fn read_integer_parameter_type(
         };
     }
 
-    let ipt = IntegerDataType {
-        size_in_bits: 0,
-        signed,
-        default_alarm: None,
-        context_alarm: vec![],
-    };
+    let ipt =
+        IntegerDataType { size_in_bits, signed, default_alarm: None, context_alarm: vec![] };
 
     Ok((encoding, TypeData::Integer(ipt)))
 }
@@ -101,8 +99,7 @@ pub(super) fn read_float_parameter_type(
         };
     }
 
-    let mut fpt =
-        FloatDataType { size_in_bits: 0, default_alarm: None, context_alarm: vec![] };
+    let fpt = FloatDataType { size_in_bits: 0, default_alarm: None, context_alarm: vec![] };
 
     Ok((encoding, TypeData::Float(fpt)))
 }
@@ -150,7 +147,7 @@ pub(super) fn read_enumerated_parameter_type(
     ctx: &ParseContext,
 ) -> Result<(DataEncoding, TypeData), XtceError> {
     let mut encoding = DataEncoding::None;
-    let mut enumeration = Vec::<EnumeratedValue>::new();
+    let mut enumeration = Vec::<ValueEnumeration>::new();
 
     for cnode in ctx.node.children() {
         match cnode.tag_name().name() {
@@ -178,8 +175,7 @@ pub(super) fn read_enumerated_parameter_type(
         };
     }
 
-    let mut ept =
-        EnumeratedDataType { enumeration, default_alarm: None, context_alarm: vec![] };
+    let mut ept = EnumeratedDataType { enumeration, default_alarm: None, context_alarm: vec![] };
     Ok((encoding, TypeData::Enumerated(ept)))
 }
 
@@ -262,13 +258,13 @@ pub(super) fn read_binary_parameter_type(
         };
     }
 
-    let mut bpt = BinaryDataType {size_in_bits: 32};
+    let mut bpt = BinaryDataType { size_in_bits: 32 };
 
     Ok((encoding, TypeData::Binary(bpt)))
 }
 
 pub(super) fn read_aggregate_parameter_type(
-    mdb: &MissionDatabase,
+    mdb: &mut MissionDatabase,
     ctx: &ParseContext,
 ) -> Result<(DataEncoding, TypeData), XtceError> {
     let name = ctx.name;
@@ -300,7 +296,7 @@ pub(super) fn read_aggregate_parameter_type(
 }
 
 fn read_member(
-    mdb: &MissionDatabase,
+    mdb: &mut MissionDatabase,
     ctx: &ParseContext,
     node: &Node,
 ) -> Result<Member, XtceError> {
@@ -308,25 +304,32 @@ fn read_member(
     let rtype = NameReferenceType::ParameterType;
 
     let dtype = resolve_ref(mdb, ctx, &ptype_str, rtype)?;
-    let ndescr = read_name_description(ctx);
+    let name_str = read_mandatory_name(node)?;
+    let name = mdb.get_or_intern(name_str);
+    let ctx1 = ParseContext {
+        name_tree: ctx.name_tree,
+        node: *node,
+        path: ctx.path,
+        name: name,
+        rtype: ctx.rtype,
+    };
+    let ndescr = read_name_description(&ctx1);
 
     Ok(Member { ndescr, dtype })
 }
 
-
 pub(super) fn read_array_parameter_type(
     mdb: &MissionDatabase,
     ctx: &ParseContext,
-) -> Result<(DataEncoding, TypeData), XtceError> {  
+) -> Result<(DataEncoding, TypeData), XtceError> {
     let ptype_str = read_mandatory_attribute::<String>(&ctx.node, "arrayTypeRef")?;
     let rtype = NameReferenceType::ParameterType;
     let dtype = resolve_ref(mdb, ctx, &ptype_str, rtype)?;
 
-    let apt = ArrayDataType {dim: Vec::new(), dtype };
+    let apt = ArrayDataType { dim: Vec::new(), dtype };
 
     Ok((DataEncoding::None, TypeData::Array(apt)))
 }
-
 
 pub(super) fn read_absolute_time_parameter_type(
     mdb: &MissionDatabase,
@@ -346,18 +349,18 @@ pub(super) fn read_absolute_time_parameter_type(
             }
         };
     }
-    let apt = AbsoluteTimeDataType{};
+    let apt = AbsoluteTimeDataType {};
     Ok((DataEncoding::None, TypeData::AbsoluteTime(apt)))
 }
 
-fn read_enumeration_list(elist: &mut Vec<EnumeratedValue>, node: &Node) -> Result<(), XtceError> {
+fn read_enumeration_list(elist: &mut Vec<ValueEnumeration>, node: &Node) -> Result<(), XtceError> {
     for cnode in node.children().filter(|n| !n.tag_name().name().is_empty()) {
         let value = read_mandatory_attribute::<i64>(&cnode, "value")?;
         let label = read_mandatory_attribute::<String>(&cnode, "label")?;
         let max_value = read_attribute::<i64>(&cnode, "value")?.unwrap_or(value);
         let description = read_attribute::<String>(&cnode, "shortDescription")?;
 
-        elist.push(EnumeratedValue { value, label, max_value, description });
+        elist.push(ValueEnumeration { value, label, max_value, description });
     }
     Ok(())
 }

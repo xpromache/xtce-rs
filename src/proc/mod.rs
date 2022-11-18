@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::{mdb::{MatchCriteria, MissionDatabase}, bitbuffer::BitBuffer, value::ParameterValue};
+use crate::{mdb::{MatchCriteria, MissionDatabase}, bitbuffer::BitBuffer, value::ParameterValue, pvlist::ParameterValueList};
 
 pub mod containers;
 pub mod types;
@@ -19,10 +19,16 @@ pub enum MdbProcError {
     NoDataTypeAvailable(String),
     #[error("invalid mdb")]
     InvalidMdb(String),
+    #[error("invalid value")]
+    InvalidValue(String),
+    
 }
 
 pub(crate) struct ProcCtx<'a> {
     mdb: &'a MissionDatabase,
     buf: BitBuffer<'a>,
-    result: Vec<ParameterValue>,
+    result: ParameterValueList,
+
+    //where in the overall packet this container starts
+    start_offset: u32
 }

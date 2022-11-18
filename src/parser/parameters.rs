@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use super::*;
+use super::{*, misc::resolve_ref};
 use crate::mdb::*;
 
 
@@ -11,7 +11,7 @@ pub(super) fn add_parameter(mdb: &mut MissionDatabase, ctx: &ParseContext) -> Re
     let rtype = NameReferenceType::ParameterType;
 
     let type_idx = resolve_ref(mdb, ctx, &ptype_str, rtype)?;
-    let mut ndescr = read_name_description(ctx);
+    let ndescr = read_name_description(ctx);
 
     
     let data_source = (read_attribute::<DataSource>(node, "dataSource")?).unwrap_or(DataSource::Telemetered);

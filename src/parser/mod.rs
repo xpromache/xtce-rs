@@ -4,6 +4,7 @@ mod nametree;
 mod parameters;
 mod types;
 mod utils;
+mod misc;
 
 use std::fmt;
 
@@ -25,8 +26,8 @@ use self::parameters::add_parameter;
 
 #[derive(Debug)]
 pub struct XtceParseError {
-    msg: String,
-    pos: TextPos,
+    pub msg: String,
+    pub pos: TextPos,
 }
 
 #[derive(Debug)]

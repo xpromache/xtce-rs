@@ -1,27 +1,47 @@
-use std::collections::HashMap;
 use std::sync::Arc;
+use std::{collections::HashMap, fmt::Debug};
 
 use std::fmt;
 use std::fmt::Formatter;
 
 use lasso::{Key, ThreadedRodeo};
 
+use crate::value::ValueUnion;
+use crate::{
+    bitbuffer::ByteOrder,
+};
+
 pub(crate) type NameIdx = lasso::Spur;
 
 pub type NameDb = Arc<ThreadedRodeo<NameIdx>>;
 
+pub type SpaceSystemIdx = Index;
+pub type DataTypeIdx = Index;
+pub type ParameterIdx = Index;
+pub type ContainerIdx = Index;
+pub type MatchCriteriaIdx = Index;
 
+/// The Mission Database contains all Parameters, Parameter Types, Containers, etc.
+/// Unlike the Java version, because Rust doesn't like items pointing to randomly at eachother,
+/// we have them all stored in vectors at the top of this structure.
+/// The definition of each item uses then indices in these vectors 
+/// (e.g. a parameter definition contains the index of its parameter type in the parameter_types vector).
+/// 
+/// Similaryly for names - we use some numeric identifiers for each name and the String has to be retrieved from the NameDb
 pub struct MissionDatabase {
-    //TBD: we could change these vectors into Vec32 (from the mediumvec crate) to reduce the size of the MissionDatabase struct
-    // (to fit better in the CPU cache). TODO: test performance after all is implemented    
+    name_db: NameDb,
+    pub space_systems: Vec<SpaceSystem>,
+    /// qualified space system names
+    /// to lookup an item (parameter, type, etc) by fully qualified name, 
+    /// the space system is taken from the map and then in the space system there is a map with all the items 
+    space_systems_qn: HashMap<QualifiedName, SpaceSystemIdx>,
+
+    /// vectors with definitions
     pub parameter_types: Vec<DataType>,
     pub parameters: Vec<Parameter>,
     pub containers: Vec<SequenceContainer>,
-    name_db: NameDb,
-    pub space_systems: Vec<SpaceSystem>,
-    space_systems_qn: HashMap<QualifiedName, SpaceSystemIdx>,
+    pub match_criteria: Vec<MatchCriteria>,
 }
-
 
 #[derive(Clone, Default, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct QualifiedName(Vec<NameIdx>);
@@ -36,9 +56,20 @@ impl QualifiedName {
     pub fn is_root(&self) -> bool {
         self.0.is_empty()
     }
+
+    /// return the last part of the qualified name
+    /// for the root / it returns None
     pub fn name(&self) -> Option<NameIdx> {
         self.0.last().copied()
     }
+
+    /// return the qualified name without the last component
+    pub fn parent(self) -> QualifiedName {
+        let mut v = self.0.clone();
+        v.pop();
+        QualifiedName(v)
+    }
+
     pub fn push(&mut self, name: NameIdx) {
         self.0.push(name);
     }
@@ -63,6 +94,43 @@ impl QualifiedName {
             r
         }
     }
+
+    /// get a qualified name from a string.
+    /// It splits the name by "/" separator - if any part is not found in the NameDb, None is returned
+    ///
+    pub fn from_str(name_db: &NameDb, qnstr: &str) -> Option<QualifiedName> {
+        let mut qn = QualifiedName::empty();
+
+        for p in qnstr.split("/") {
+            if !p.is_empty() {
+                if let Some(idx) = name_db.get(p) {
+                    qn.push(idx);
+                } else {
+                    return None;
+                }
+            }
+        }
+
+        Some(qn)
+    }
+
+    /// parse string to (space_system_qn, name).
+    /// The string is split by "/",
+    /// If the path contains any name not found in the NameDb or if the path is emty, None is returned
+    pub fn parse_ss_name(name_db: &NameDb, qnstr: &str) -> Option<(QualifiedName, NameIdx)> {
+        let mut v = Vec::new();
+
+        for p in qnstr.split("/").skip_while(|x| x.is_empty()) {
+            if let Some(idx) = name_db.get(p) {
+                v.push(idx);
+            } else {
+                return None;
+            }
+        }
+
+        let name = v.pop()?;
+        Some((QualifiedName(v), name))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Enum)]
@@ -82,6 +150,8 @@ impl std::fmt::Debug for QualifiedName {
     }
 }
 
+/// non zero U32 which has the advantage of not consuming extra space inside an Option<>
+/// it is used to index parameters, containers, matchcrietrias...
 #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash, Debug)]
 pub struct Index(std::num::NonZeroU32);
 
@@ -93,11 +163,6 @@ impl Index {
         (self.0.get() - 1) as usize
     }
 }
-
-pub type SpaceSystemIdx = Index;
-pub type DataTypeIdx = Index;
-pub type ParameterIdx = Index;
-pub type ContainerIdx = Index;
 
 #[derive(Clone, Debug, Default)]
 pub struct NameDescription {
@@ -111,8 +176,6 @@ impl NameDescription {
         NameDescription { name, short_description: None, long_description: None }
     }
 }
-
-
 
 #[derive(Debug)]
 pub enum DataSource {
@@ -187,6 +250,7 @@ pub enum IntegerEncodingType {
 pub struct IntegerDataEncoding {
     pub size_in_bits: u8,
     pub encoding: IntegerEncodingType,
+    pub byte_order: ByteOrder,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -252,15 +316,19 @@ pub struct BinaryDataType {
     pub size_in_bits: u32,
 }
 
-pub struct EnumeratedValue {
-    pub(crate) value: i64,
-    pub(crate) max_value: i64,
-    //equal to value if not configured
-    pub(crate) label: String,
-    pub(crate) description: Option<String>,
+#[derive(Debug)]
+pub enum Calibrator {}
+
+pub struct ValueEnumeration {
+    pub value: i64,
+    /// If max value is given, the label maps to a range where value is less than or equal to maxValue. 
+    /// The range is inclusive.
+    pub max_value: i64,
+    pub label: String,
+    pub description: Option<String>,
 }
 
-impl std::fmt::Debug for EnumeratedValue {
+impl std::fmt::Debug for ValueEnumeration {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         if self.value != self.max_value {
             write!(f, "[{}-{}]", self.value, self.max_value)?;
@@ -271,13 +339,13 @@ impl std::fmt::Debug for EnumeratedValue {
     }
 }
 
-
 #[derive(Debug)]
 pub struct DataType {
     pub ndescr: NameDescription,
     pub encoding: DataEncoding,
     pub type_data: TypeData,
     pub units: Vec<UnitType>,
+    pub calibrator: Option<Calibrator>,
 }
 
 #[derive(Debug)]
@@ -298,10 +366,9 @@ impl NamedItem for DataType {
     }
 }
 
-
 #[derive(Debug)]
 pub struct EnumeratedDataType {
-    pub enumeration: Vec<EnumeratedValue>,
+    pub enumeration: Vec<ValueEnumeration>,
     pub default_alarm: Option<EnumerationAlarm>,
     pub context_alarm: Vec<EnumerationContextAlarm>,
 }
@@ -321,10 +388,8 @@ pub struct IntegerDataType {
     pub context_alarm: Vec<NumericContextAlarm>,
 }
 
-
 #[derive(Debug)]
-pub struct StringDataType {
-}
+pub struct StringDataType {}
 
 #[derive(Debug)]
 pub struct BooleanDataType {
@@ -337,11 +402,16 @@ pub struct AggregateDataType {
     pub members: Vec<Member>,
 }
 
-
 #[derive(Debug)]
 pub struct Member {
     pub ndescr: NameDescription,
     pub dtype: DataTypeIdx,
+}
+
+impl NamedItem for Member {
+    fn name_descr(&self) -> &NameDescription {
+        &self.ndescr
+    }
 }
 
 #[derive(Debug)]
@@ -350,16 +420,11 @@ pub struct ArrayDataType {
     pub dim: Vec<IntegerValue>,
 }
 
-
-
-
 pub trait NamedItem {
     fn name_descr(&self) -> &NameDescription;
     fn name(&self) -> NameIdx {
         self.name_descr().name
     }
-
-
 }
 pub struct Parameter {
     pub ndescr: NameDescription,
@@ -379,7 +444,6 @@ pub struct SequenceContainer {
     //abstract is a reserved word in Rust
     pub abstract_: bool,
     pub entries: Vec<ContainerEntry>,
-    
 }
 
 impl NamedItem for SequenceContainer {
@@ -388,24 +452,23 @@ impl NamedItem for SequenceContainer {
     }
 }
 
-
 pub struct ContainerEntry {
     pub location_in_container: Option<LocationInContainerInBits>,
     pub include_condition: Option<MatchCriteria>,
-    pub data: ContainerEntryData
+    pub data: ContainerEntryData,
 }
 
 pub enum ContainerEntryData {
     ParameterRef(ParameterIdx),
     ContainerRef(ContainerIdx),
     IndirectParameterRef(IndirectParameterRefEntry),
-    ArrayParameterRef(ArrayParameterRefEntry)
+    ArrayParameterRef(ArrayParameterRefEntry),
 }
 
 #[derive(Debug)]
 pub struct LocationInContainerInBits {
     pub reference_location: ReferenceLocationType,
-    pub location_in_bits: i32
+    pub location_in_bits: i32,
 }
 
 /// The location may be relative to the start of the container (containerStart),
@@ -413,35 +476,53 @@ pub struct LocationInContainerInBits {
 #[derive(Debug)]
 pub enum ReferenceLocationType {
     ContainerStart,
-    PreviousEntry
+    PreviousEntry,
 }
 
-pub struct MatchCriteria {
-
+pub enum MatchCriteria {
+    Comparison(Comparison),
 }
 
-pub struct  IndirectParameterRefEntry {
 
+pub struct Comparison {
+    pub param_instance: ParameterInstanceRef,
+    pub comparison_operator: ComparisonOperator,
+    pub value: ValueUnion<()>,
 }
 
-pub struct ArrayParameterRefEntry {
-
+#[derive(Debug)]
+pub enum ComparisonOperator {
+    Equality,
+    Inequality,
+    LargerThan,
+    LargerOrEqualThan,
+    SmallerThan,
+    SmallerOrEqualThan
 }
+
+#[derive(Debug)]
+pub struct ParameterInstanceRef {
+    pub pidx: ParameterIdx,
+    pub instance: i32,
+    pub use_calibrated_value: bool
+}
+
+
+pub struct IndirectParameterRefEntry {}
+
+pub struct ArrayParameterRefEntry {}
 
 #[derive(Debug)]
 pub struct AbsoluteTimeDataType {}
 
-
 #[derive(Debug)]
 pub enum IntegerValue {
     FixedValue(i64),
-    DynamicValue(DynamicValueType)
+    DynamicValue(DynamicValueType),
 }
 
 #[derive(Debug)]
-pub struct DynamicValueType {
-
-}
+pub struct DynamicValueType {}
 
 pub struct SpaceSystem {
     id: SpaceSystemIdx,
@@ -478,6 +559,7 @@ impl MissionDatabase {
             parameter_types: Vec::new(),
             parameters: Vec::new(),
             containers: Vec::new(),
+            match_criteria: Vec::new(),
         };
         //create the root space system - it has "" name and an empty qualified name
         let ss_idx = SpaceSystemIdx::new(0);
@@ -577,7 +659,7 @@ impl MissionDatabase {
         self.get_space_system(space_system).and_then(|ss| ss.containers.get(&name)).map(|idx| *idx)
     }
 
-    pub fn get_parameter_type(&self, idx: DataTypeIdx) -> &DataType {
+    pub fn get_data_type(&self, idx: DataTypeIdx) -> &DataType {
         &self.parameter_types[idx.index()]
     }
 
@@ -620,5 +702,13 @@ impl MissionDatabase {
 
     pub fn name_db_ref(&self) -> &NameDb {
         &self.name_db
+    }
+
+    /// searches a container by fully qualified name
+    pub fn search_container(&self, qnstr: &str) -> Option<ContainerIdx> {
+        let (ssqn, name) = QualifiedName::parse_ss_name(&self.name_db, qnstr)?;
+
+        let ss = self.get_space_system(&ssqn)?;
+        ss.containers.get(&name).copied()
     }
 }

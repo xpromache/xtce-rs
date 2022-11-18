@@ -1,15 +1,15 @@
-use thiserror::Error;
 
 use crate::{
     bitbuffer::BitBuffer,
     mdb::{
-        ContainerEntry, ContainerEntryData, ContainerIdx, MatchCriteria, MissionDatabase,
-        NamedItem, Parameter, ReferenceLocationType, SequenceContainer, DataType, DataEncoding,
+        ContainerEntryData, ContainerIdx, 
+        MissionDatabase, NamedItem, ParameterIdx, ReferenceLocationType,
+        SequenceContainer
     },
-    value::{ParameterValue, RawValue},
+    value::{ParameterValue}, pvlist::ParameterValueList,
 };
 
-use super::{check_match, ProcCtx, MdbProcError, encodings::extract_encoding};
+use super::{check_match, types, MdbProcError, ProcCtx};
 
 //1GB that should be plenty enough
 const MAX_PACKET_SIZE: usize = (u32::MAX / 4) as usize;
@@ -18,12 +18,13 @@ pub fn process(
     mdb: &MissionDatabase,
     packet: &[u8],
     root_container: ContainerIdx,
-) -> Result<Vec<ParameterValue>, MdbProcError> {
+) -> Result<ParameterValueList, MdbProcError> {
     if packet.len() > MAX_PACKET_SIZE {
         panic!("Packet too long. max size is {}", MAX_PACKET_SIZE)
     }
     let container = mdb.get_container(root_container);
-    let mut ctx = ProcCtx { mdb, buf: BitBuffer::wrap(packet), result: Vec::new() };
+    let mut ctx =
+        ProcCtx { mdb, buf: BitBuffer::wrap(packet), result: ParameterValueList::new(), start_offset: 0 };
     extract_container(container, &mut ctx)?;
 
     Ok(ctx.result)
@@ -49,7 +50,7 @@ fn extract_container(container: &SequenceContainer, ctx: &mut ProcCtx) -> Result
             }
             ctx.buf.set_position(newpos as usize)
         }
-        extract_entry(&entry.data, ctx);
+        extract_entry(&entry.data, ctx)?;
     }
 
     Ok(())
@@ -57,10 +58,7 @@ fn extract_container(container: &SequenceContainer, ctx: &mut ProcCtx) -> Result
 
 fn extract_entry(entry: &ContainerEntryData, ctx: &mut ProcCtx) -> Result<(), MdbProcError> {
     match *entry {
-        ContainerEntryData::ParameterRef(pidx) => {
-            let p = ctx.mdb.get_parameter(pidx);
-            extract_parameter(p, ctx);
-        }
+        ContainerEntryData::ParameterRef(pidx) => extract_parameter(pidx, ctx)?,
         ContainerEntryData::ContainerRef(_) => todo!(),
         ContainerEntryData::IndirectParameterRef(_) => todo!(),
         ContainerEntryData::ArrayParameterRef(_) => todo!(),
@@ -69,28 +67,23 @@ fn extract_entry(entry: &ContainerEntryData, ctx: &mut ProcCtx) -> Result<(), Md
     Ok(())
 }
 
-fn extract_parameter(parameter: &Parameter, ctx: &mut ProcCtx) -> Result<(), MdbProcError> {
-    let ptype = parameter.ptype.ok_or(MdbProcError::NoDataTypeAvailable(format!(
+fn extract_parameter(pidx: ParameterIdx, ctx: &mut ProcCtx) -> Result<(), MdbProcError> {
+    let param = ctx.mdb.get_parameter(pidx);
+
+    let ptype_idx = param.ptype.ok_or(MdbProcError::NoDataTypeAvailable(format!(
         "No data type available for parameter {}",
-        ctx.mdb.name2str(parameter.name())
+        ctx.mdb.name2str(param.name())
     )))?;
-    let ptype = ctx.mdb.get_parameter_type(ptype);
+    let dtype = ctx.mdb.get_data_type(ptype_idx);
+
+    let raw_value = types::extract(dtype, ctx)?;
+    let eng_value = types::calibrate(&raw_value, dtype, ctx)?;
+
+    let pv = ParameterValue { pidx, raw_value, eng_value };
+
+    println!("------------ Yuhuuu got our first pv: {:?}", pv);
     
-    let rv = extract(ptype, ctx)?;
+    ctx.result.push(pv);
+
     Ok(())
-}
-
-
-fn extract(ptype: &DataType, ctx: &mut ProcCtx) -> Result<RawValue, MdbProcError> {
-    if let DataEncoding::None = ptype.encoding {
-        match ptype.type_data {
-            crate::mdb::TypeData::Aggregate(_) => todo!(),
-            crate::mdb::TypeData::Array(_) => todo!(),
-            _ => {
-                return Err(MdbProcError::InvalidMdb(format!("base data type without encoding: {}", ctx.mdb.name2str(ptype.name()))));
-            }
-        }
-    } else {
-        return extract_encoding(&ptype.encoding, ctx);
-    }
 }
