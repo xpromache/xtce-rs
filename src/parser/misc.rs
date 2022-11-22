@@ -2,25 +2,27 @@ use std::str::FromStr;
 
 use roxmltree::Node;
 
-use crate::{mdb::{Comparison, ComparisonOperator, MatchCriteria, MissionDatabase, ParameterInstanceRef, NameReferenceType, Index, IntegerValue}};
+use crate::mdb::{
+    Comparison, ComparisonOperator, Index, IntegerValue, MatchCriteria, MatchCriteriaIdx,
+    MissionDatabase, NameReferenceType, ParameterInstanceRef, types::MemberPath,
+};
 
 use super::{
     utils::{get_parse_error, read_attribute, read_mandatory_attribute, read_mandatory_text},
     ParseContext, XtceError, XtceParseError,
 };
 
+/// parses the match criteria, adds it to the mdb.match_criterias and returns the idx
 pub(super) fn read_match_criteria(
-    mdb: &MissionDatabase,
+    mdb: &mut MissionDatabase,
     ctx: &ParseContext,
     node: &Node,
-) -> Result<MatchCriteria, XtceError> {
+) -> Result<MatchCriteriaIdx, XtceError> {
     for cnode in node.children() {
-        match cnode.tag_name().name() {
-            "Comparison" => {
-                return Ok(MatchCriteria::Comparison(read_comparison(mdb, ctx, &cnode)?))
-            }
+        let mc = match cnode.tag_name().name() {
+            "Comparison" => MatchCriteria::Comparison(read_comparison(mdb, ctx, &cnode)?),
             "ComparisonList" => {
-                todo!()
+                MatchCriteria::ComparisonList(read_comparison_list(mdb, ctx, &cnode)?)
             }
             "BooleanExpression" => {
                 todo!()
@@ -28,8 +30,13 @@ pub(super) fn read_match_criteria(
             "CustomAlgorithm" => {
                 todo!()
             }
-            _ => log::warn!("ignoring unknown  '{}'", cnode.tag_name().name()),
-        }
+            _ => {
+                log::warn!("ignoring unknown  '{}'", cnode.tag_name().name());
+                continue;
+            }
+        };
+
+        return Ok(mdb.add_match_criteria(mc));
     }
 
     Err(XtceError::ParseError(get_parse_error("No criteria specified", node)))
@@ -41,15 +48,33 @@ pub(super) fn read_comparison(
     node: &Node,
 ) -> Result<Comparison, XtceError> {
     let value = read_mandatory_attribute::<String>(node, "value")?;
-    let op = (read_attribute::<ComparisonOperator>(node, "comparisonOperator")?)
+    let comparison_operator = (read_attribute::<ComparisonOperator>(node, "comparisonOperator")?)
         .unwrap_or(ComparisonOperator::Equality);
-    let pref = read_para_insta_ref(mdb, ctx, node)?;
-    let para = mdb.get_parameter(pref.pidx);
-    //let v = para.p
+    let param_instance = read_para_insta_ref(mdb, ctx, node)?;
 
-    print!(" value: {} op: {:?} pref: {:?}", value, op, pref);
+    Ok(Comparison { param_instance, comparison_operator, value })
+}
 
-    todo!()
+pub(super) fn read_comparison_list(
+    mdb: &MissionDatabase,
+    ctx: &ParseContext,
+    node: &Node,
+) -> Result<Vec<Comparison>, XtceError> {
+    let mut r = Vec::new();
+    for cnode in node.children() {
+        match cnode.tag_name().name() {
+            "Comparison" => r.push(read_comparison(mdb, ctx, &cnode)?),
+            _ => {
+                log::warn!(
+                    "ignoring unknown element in comparison list '{}'",
+                    cnode.tag_name().name()
+                );
+                continue;
+            }
+        }
+    }
+
+    Ok(r)
 }
 
 impl FromStr for ComparisonOperator {
@@ -74,14 +99,13 @@ pub(super) fn read_para_insta_ref(
     node: &Node,
 ) -> Result<ParameterInstanceRef, XtceError> {
     let pref = read_mandatory_attribute::<String>(node, "parameterRef")?;
-    let pidx = resolve_ref(mdb, ctx, &pref, NameReferenceType::Parameter)?;
+    let (pidx, member_path) = resolve_para_ref(mdb, ctx, &pref)?;
     let instance = (read_attribute::<i32>(node, "instance")?).unwrap_or(0);
-    let use_calibrated_value = (read_attribute::<bool>(node, "useCalibratedValue")?).unwrap_or(true);
+    let use_calibrated_value =
+        (read_attribute::<bool>(node, "useCalibratedValue")?).unwrap_or(true);
 
-    Ok(ParameterInstanceRef { pidx, instance, use_calibrated_value})
+    Ok(ParameterInstanceRef { pidx, instance, use_calibrated_value, member_path})
 }
-
-
 
 pub(super) fn resolve_ref(
     mdb: &MissionDatabase,
@@ -104,6 +128,28 @@ pub(super) fn resolve_ref(
     }
     .ok_or(XtceError::UnresolvedReference(name.to_string(), rtype))
 }
+
+pub(super) fn resolve_para_ref(
+    mdb: &MissionDatabase,
+    ctx: &ParseContext,
+    name: &str,
+) -> Result<(Index, Option<MemberPath>), XtceError> {
+    let rtype =  NameReferenceType::Parameter;
+    let (qn, rname, aggr_path) = match ctx.name_tree.resolve_ref(name, ctx.path, rtype) {
+        Some((qn, ptype_idx, aggr_path)) => (qn, ptype_idx, aggr_path),
+        None => {
+            return Err(XtceError::UndefinedReference(name.to_string(), rtype));
+        }
+    };
+    let idx = mdb.get_parameter_idx(qn, rname) .ok_or(XtceError::UnresolvedReference(name.to_string(), rtype))?;
+
+    Ok((idx, aggr_path))
+}
+
+
+
+
+
 
 pub(super) fn read_integer_value(
     mdb: &MissionDatabase,

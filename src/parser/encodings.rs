@@ -1,9 +1,8 @@
 use std::str::FromStr;
 
 use super::*;
-use utils::*;
 
-use crate::{bitbuffer::ByteOrder, mdb::*};
+use crate::{bitbuffer::ByteOrder, mdb::{*, types::{IntegerEncodingType, DataEncoding, StringDataEncoding, FloatDataEncoding, FloatEncodingType, IntegerDataEncoding, StringSizeType}}};
 use roxmltree::Node;
 
 pub(super) fn read_integer_data_encoding(

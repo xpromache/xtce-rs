@@ -1,14 +1,14 @@
 use crate::{
-    mdb::{BinaryDataEncoding, DataEncoding, IntegerDataEncoding, IntegerEncodingType},
+    mdb::types::{BinaryDataEncoding, DataEncoding, IntegerDataEncoding, IntegerEncodingType},
     value::{RawValue, ValueUnion, ContainerPosition},
 };
 
-use super::{MdbProcError, ProcCtx};
+use super::{MdbError, ProcCtx};
 
 pub(crate) fn extract_encoding(
     encoding: &DataEncoding,
     ctx: &mut ProcCtx,
-) -> Result<RawValue, MdbProcError> {
+) -> Result<RawValue, MdbError> {
     match encoding {
         DataEncoding::Integer(ide) => extract_integer(ide, ctx),
         DataEncoding::Binary(bde) => extract_binary(bde, ctx),
@@ -19,14 +19,15 @@ pub(crate) fn extract_encoding(
     }
 }
 
-fn extract_integer(ide: &IntegerDataEncoding, ctx: &mut ProcCtx) -> Result<RawValue, MdbProcError> {
-    let mut bitbuf = &mut ctx.buf;
+fn extract_integer(ide: &IntegerDataEncoding, ctx: &mut ProcCtx) -> Result<RawValue, MdbError> {
+    let cctx = &mut ctx.cbuf;
+    let bitbuf = &mut cctx.buf;
 
     bitbuf.set_byte_order(ide.byte_order);
     let numbits = ide.size_in_bits as usize;
     let bit_offset = bitbuf.get_position() as u32;
 
-    let start_offset = ctx.start_offset;
+    let start_offset = cctx.start_offset;
 
     let mut bv = bitbuf.get_bits(numbits);
 
@@ -65,6 +66,6 @@ fn extract_integer(ide: &IntegerDataEncoding, ctx: &mut ProcCtx) -> Result<RawVa
 
 }
 
-fn extract_binary(bde: &BinaryDataEncoding, ctx: &mut ProcCtx) -> Result<RawValue, MdbProcError> {
+fn extract_binary(bde: &BinaryDataEncoding, ctx: &mut ProcCtx) -> Result<RawValue, MdbError> {
     todo!()
 }

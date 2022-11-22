@@ -1,3 +1,7 @@
+pub mod debug;
+pub mod types;
+pub mod utils;
+
 use std::sync::Arc;
 use std::{collections::HashMap, fmt::Debug};
 
@@ -6,10 +10,7 @@ use std::fmt::Formatter;
 
 use lasso::{Key, ThreadedRodeo};
 
-use crate::value::ValueUnion;
-use crate::{
-    bitbuffer::ByteOrder,
-};
+use self::types::{DataType, MemberPath};
 
 pub(crate) type NameIdx = lasso::Spur;
 
@@ -24,16 +25,16 @@ pub type MatchCriteriaIdx = Index;
 /// The Mission Database contains all Parameters, Parameter Types, Containers, etc.
 /// Unlike the Java version, because Rust doesn't like items pointing to randomly at eachother,
 /// we have them all stored in vectors at the top of this structure.
-/// The definition of each item uses then indices in these vectors 
+/// The definition of each item uses then indices in these vectors
 /// (e.g. a parameter definition contains the index of its parameter type in the parameter_types vector).
-/// 
+///
 /// Similaryly for names - we use some numeric identifiers for each name and the String has to be retrieved from the NameDb
 pub struct MissionDatabase {
     name_db: NameDb,
     pub space_systems: Vec<SpaceSystem>,
     /// qualified space system names
-    /// to lookup an item (parameter, type, etc) by fully qualified name, 
-    /// the space system is taken from the map and then in the space system there is a map with all the items 
+    /// to lookup an item (parameter, type, etc) by fully qualified name,
+    /// the space system is taken from the map and then in the space system there is a map with all the items
     space_systems_qn: HashMap<QualifiedName, SpaceSystemIdx>,
 
     /// vectors with definitions
@@ -41,6 +42,13 @@ pub struct MissionDatabase {
     pub parameters: Vec<Parameter>,
     pub containers: Vec<SequenceContainer>,
     pub match_criteria: Vec<MatchCriteria>,
+}
+
+pub trait NamedItem {
+    fn name_descr(&self) -> &NameDescription;
+    fn name(&self) -> NameIdx {
+        self.name_descr().name
+    }
 }
 
 #[derive(Clone, Default, PartialEq, PartialOrd, Eq, Ord, Hash)]
@@ -226,206 +234,6 @@ pub struct UnitType {
     pub unit: String,
 }
 
-#[derive(Debug)]
-pub struct BinaryDataEncoding {}
-
-#[derive(Debug)]
-pub struct BooleanDataEncoding {}
-
-#[derive(Debug)]
-pub struct FloatDataEncoding {
-    pub size_in_bits: u8,
-    pub encoding: FloatEncodingType,
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum IntegerEncodingType {
-    Unsigned,
-    TwosComplement,
-    SignMagnitude,
-    OnesComplement,
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct IntegerDataEncoding {
-    pub size_in_bits: u8,
-    pub encoding: IntegerEncodingType,
-    pub byte_order: ByteOrder,
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum FloatEncodingType {
-    IEEE754_1985,
-    Milstd1750a,
-}
-
-#[derive(Debug)]
-pub enum StringSizeType {
-    /**
-     * fixed size has to be specified in the {@link #getSizeInBits}
-     */
-    Fixed,
-    /**
-     * Like C strings, they are terminated with a special string, usually a null character.
-     */
-    TerminationChar,
-    /**
-     * Like PASCAL strings, the size of the string is given as an integer at the start of the string. SizeTag must
-     * be an unsigned Integer
-     */
-    LeadingSize,
-    /**
-     * {@link #getFromBinaryTransformAlgorithm} will be used to decode the data
-     */
-    Custom,
-}
-
-#[derive(Debug)]
-pub struct StringDataEncoding {
-    pub sizeType: StringSizeType,
-    pub size_in_bits: u32,
-    pub sizeInBitsOfSizeTag: u8,
-    pub encoding: String,
-    pub termination_char: u8,
-}
-
-#[derive(Debug)]
-pub enum DataEncoding {
-    None,
-    Binary(BinaryDataEncoding),
-    Boolean(BooleanDataEncoding),
-    Float(FloatDataEncoding),
-    Integer(IntegerDataEncoding),
-    String(StringDataEncoding),
-}
-
-#[derive(Debug)]
-pub struct NumericAlarm {}
-
-#[derive(Debug)]
-pub struct NumericContextAlarm {}
-
-#[derive(Debug)]
-pub struct EnumerationAlarm {}
-
-#[derive(Debug)]
-pub struct EnumerationContextAlarm {}
-
-#[derive(Debug)]
-pub struct BinaryDataType {
-    pub size_in_bits: u32,
-}
-
-#[derive(Debug)]
-pub enum Calibrator {}
-
-pub struct ValueEnumeration {
-    pub value: i64,
-    /// If max value is given, the label maps to a range where value is less than or equal to maxValue. 
-    /// The range is inclusive.
-    pub max_value: i64,
-    pub label: String,
-    pub description: Option<String>,
-}
-
-impl std::fmt::Debug for ValueEnumeration {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        if self.value != self.max_value {
-            write!(f, "[{}-{}]", self.value, self.max_value)?;
-        } else {
-            write!(f, "{}", self.value)?;
-        }
-        write!(f, ": {}", self.label)
-    }
-}
-
-#[derive(Debug)]
-pub struct DataType {
-    pub ndescr: NameDescription,
-    pub encoding: DataEncoding,
-    pub type_data: TypeData,
-    pub units: Vec<UnitType>,
-    pub calibrator: Option<Calibrator>,
-}
-
-#[derive(Debug)]
-pub enum TypeData {
-    Integer(IntegerDataType),
-    Float(FloatDataType),
-    String(StringDataType),
-    Binary(BinaryDataType),
-    Boolean(BooleanDataType),
-    Enumerated(EnumeratedDataType),
-    Aggregate(AggregateDataType),
-    Array(ArrayDataType),
-    AbsoluteTime(AbsoluteTimeDataType),
-}
-impl NamedItem for DataType {
-    fn name_descr(&self) -> &NameDescription {
-        &self.ndescr
-    }
-}
-
-#[derive(Debug)]
-pub struct EnumeratedDataType {
-    pub enumeration: Vec<ValueEnumeration>,
-    pub default_alarm: Option<EnumerationAlarm>,
-    pub context_alarm: Vec<EnumerationContextAlarm>,
-}
-
-#[derive(Debug)]
-pub struct FloatDataType {
-    pub size_in_bits: u32,
-    pub default_alarm: Option<NumericAlarm>,
-    pub context_alarm: Vec<NumericContextAlarm>,
-}
-
-#[derive(Debug)]
-pub struct IntegerDataType {
-    pub size_in_bits: u32,
-    pub signed: bool,
-    pub default_alarm: Option<NumericAlarm>,
-    pub context_alarm: Vec<NumericContextAlarm>,
-}
-
-#[derive(Debug)]
-pub struct StringDataType {}
-
-#[derive(Debug)]
-pub struct BooleanDataType {
-    pub one_string_value: String,
-    pub zero_string_value: String,
-}
-
-#[derive(Debug)]
-pub struct AggregateDataType {
-    pub members: Vec<Member>,
-}
-
-#[derive(Debug)]
-pub struct Member {
-    pub ndescr: NameDescription,
-    pub dtype: DataTypeIdx,
-}
-
-impl NamedItem for Member {
-    fn name_descr(&self) -> &NameDescription {
-        &self.ndescr
-    }
-}
-
-#[derive(Debug)]
-pub struct ArrayDataType {
-    pub dtype: DataTypeIdx,
-    pub dim: Vec<IntegerValue>,
-}
-
-pub trait NamedItem {
-    fn name_descr(&self) -> &NameDescription;
-    fn name(&self) -> NameIdx {
-        self.name_descr().name
-    }
-}
 pub struct Parameter {
     pub ndescr: NameDescription,
     pub ptype: Option<DataTypeIdx>,
@@ -440,7 +248,7 @@ impl NamedItem for Parameter {
 
 pub struct SequenceContainer {
     pub ndescr: NameDescription,
-    pub base_container: Option<(ContainerIdx, Option<MatchCriteria>)>,
+    pub base_container: Option<(ContainerIdx, Option<MatchCriteriaIdx>)>,
     //abstract is a reserved word in Rust
     pub abstract_: bool,
     pub entries: Vec<ContainerEntry>,
@@ -454,7 +262,7 @@ impl NamedItem for SequenceContainer {
 
 pub struct ContainerEntry {
     pub location_in_container: Option<LocationInContainerInBits>,
-    pub include_condition: Option<MatchCriteria>,
+    pub include_condition: Option<MatchCriteriaIdx>,
     pub data: ContainerEntryData,
 }
 
@@ -481,39 +289,74 @@ pub enum ReferenceLocationType {
 
 pub enum MatchCriteria {
     Comparison(Comparison),
-}
-
-
-pub struct Comparison {
-    pub param_instance: ParameterInstanceRef,
-    pub comparison_operator: ComparisonOperator,
-    pub value: ValueUnion<()>,
+    ComparisonList(Vec<Comparison>),
 }
 
 #[derive(Debug)]
+pub struct Comparison {
+    pub param_instance: ParameterInstanceRef,
+    pub comparison_operator: ComparisonOperator,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum ComparisonOperator {
     Equality,
     Inequality,
     LargerThan,
     LargerOrEqualThan,
     SmallerThan,
-    SmallerOrEqualThan
+    SmallerOrEqualThan,
 }
 
-#[derive(Debug)]
+impl std::fmt::Display for ComparisonOperator {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            ComparisonOperator::Equality => "==",
+            ComparisonOperator::Inequality => "!=",
+            ComparisonOperator::LargerThan => ">",
+            ComparisonOperator::LargerOrEqualThan => ">=",
+            ComparisonOperator::SmallerThan => "<",
+            ComparisonOperator::SmallerOrEqualThan => "<=",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ParameterInstanceRef {
     pub pidx: ParameterIdx,
+    pub member_path: Option<MemberPath>,
     pub instance: i32,
-    pub use_calibrated_value: bool
+    pub use_calibrated_value: bool,
 }
 
+impl ParameterInstanceRef {
+    fn to_string(&self, mdb: &MissionDatabase) -> String {
+        let p = mdb.get_parameter(self.pidx);
+        let mut r = mdb.name2str(p.name()).to_string();
+
+        if let Some(path) = &self.member_path {
+            r.push('.');
+            let path_str = path.iter().map(|pe| pe.to_string(mdb)).collect::<Vec<String>>().join(".");
+            r.push_str(&path_str);
+        }
+        if self.instance != 0 {
+            r.push_str(&format!("[inst: {}]", self.instance));
+        }
+        if self.use_calibrated_value {
+            r.push_str(".eng");
+        } else {
+            r.push_str(".raw");
+        }
+
+        r
+    }
+}
 
 pub struct IndirectParameterRefEntry {}
 
 pub struct ArrayParameterRefEntry {}
-
-#[derive(Debug)]
-pub struct AbsoluteTimeDataType {}
 
 #[derive(Debug)]
 pub enum IntegerValue {
@@ -523,6 +366,8 @@ pub enum IntegerValue {
 
 #[derive(Debug)]
 pub struct DynamicValueType {}
+
+
 
 pub struct SpaceSystem {
     id: SpaceSystemIdx,
@@ -633,6 +478,13 @@ impl MissionDatabase {
         idx
     }
 
+    pub fn add_match_criteria(&mut self, macth_criteria: MatchCriteria) -> MatchCriteriaIdx {
+        let idx = MatchCriteriaIdx::new(self.match_criteria.len());
+        self.match_criteria.push(macth_criteria);
+
+        idx
+    }
+
     pub fn get_space_system_mut(&mut self, fqn: &QualifiedName) -> Option<&mut SpaceSystem> {
         match self.space_systems_qn.get_mut(fqn) {
             None => None,
@@ -683,6 +535,10 @@ impl MissionDatabase {
         name: NameIdx,
     ) -> Option<DataTypeIdx> {
         self.get_space_system(space_system).and_then(|ss| ss.parameters.get(&name)).map(|idx| *idx)
+    }
+
+    pub fn get_match_criteria(&self, idx: MatchCriteriaIdx) -> &MatchCriteria {
+        &self.match_criteria[idx.index()]
     }
 
     pub fn name2str(&self, idx: NameIdx) -> &str {

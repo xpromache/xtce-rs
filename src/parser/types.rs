@@ -1,11 +1,17 @@
 use roxmltree::Node;
 
-use super::{*, misc::resolve_ref};
-use utils::*;
+use super::{misc::resolve_ref, *};
 
 use encodings::*;
 
-use crate::mdb::*;
+use crate::mdb::{
+    types::{
+        AbsoluteTimeDataType, AggregateDataType, ArrayDataType, BinaryDataType, BooleanDataType,
+        DataEncoding, DataType, EnumeratedDataType, FloatDataType, IntegerDataType, Member,
+        StringDataType, TypeData, ValueEnumeration,
+    },
+    *,
+};
 
 pub(super) fn add_parameter_type(
     mdb: &mut MissionDatabase,
@@ -64,8 +70,7 @@ pub(super) fn read_integer_parameter_type(
         };
     }
 
-    let ipt =
-        IntegerDataType { size_in_bits, signed, default_alarm: None, context_alarm: vec![] };
+    let ipt = IntegerDataType { size_in_bits, signed, default_alarm: None, context_alarm: vec![] };
 
     Ok((encoding, TypeData::Integer(ipt)))
 }

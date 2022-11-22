@@ -3,8 +3,8 @@ use core::fmt;
 use std::fmt::{Formatter};
 
 pub struct MdbItemDebug<'a, T> {
-    item: &'a T,
-    mdb: &'a MissionDatabase,
+    pub item: &'a T,
+    pub mdb: &'a MissionDatabase,
 }
 
 impl std::fmt::Debug for MdbItemDebug<'_, SpaceSystem> {
@@ -76,11 +76,12 @@ impl std::fmt::Debug for MdbItemDebug<'_, SequenceContainer> {
         let container = self.item;
         let mdb  = self.mdb;
         write!(f, "SequenceContainer(name: {}", mdb.name2str(container.name()))?;
-        if let Some((cidx, mc)) = &container.base_container {
-            let bc = mdb.get_container(*cidx);
-            write!(f, ", base: {}", mdb.name2str(bc.name()))?;
-            if let Some(mc) = mc {
-                write!(f, ", matchCriteria: {:?}", MdbItemDebug{mdb, item:mc})?;
+        if let Some((cidx, mcidx)) = &container.base_container {
+            let base_container = mdb.get_container(*cidx);
+            write!(f, ", base: {}", mdb.name2str(base_container.name()))?;
+            if let Some(mcidx) = mcidx {
+                let mc = mdb.get_match_criteria(*mcidx);
+                write!(f, ", matchCriteria: {:?}", MdbItemDebug{mdb, item: mc})?;
             }
             
         }
@@ -138,5 +139,13 @@ impl std::fmt::Debug for MdbItemDebug<'_, MatchCriteria> {
       
        
        Ok(())
+    }
+}
+
+impl std::fmt::Debug for MdbItemDebug<'_, Comparison> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+       let mdb  = self.mdb;
+       let comp = self.item;
+        write!(f, "Comparison({} {} {})", comp.param_instance.to_string(mdb), comp.comparison_operator, comp.value)
     }
 }

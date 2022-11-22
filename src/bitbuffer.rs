@@ -69,6 +69,7 @@ impl BitBuffer<'_> {
         self.position
     }
 
+    /// total size in bits
     pub fn bitsize(&self) -> usize {
         self.b.len() * 8
     }

@@ -5,15 +5,16 @@ use roxmltree::Node;
 use crate::{
     mdb::{
         Comparison, ContainerEntry, ContainerEntryData, ContainerIdx, IntegerValue,
-        LocationInContainerInBits, MatchCriteria, MissionDatabase, NameReferenceType,
-        ReferenceLocationType, SequenceContainer,
+        LocationInContainerInBits, MatchCriteria, MatchCriteriaIdx, MissionDatabase,
+        NameReferenceType, ReferenceLocationType, SequenceContainer,
     },
     parser::utils::{read_attribute, read_mandatory_attribute, read_name_description},
 };
 
 use super::{
-    utils::{get_parse_error},
-    ParseContext, XtceError, misc::{read_match_criteria, resolve_ref, read_integer_value},
+    misc::{read_integer_value, read_match_criteria, resolve_ref, resolve_para_ref},
+    utils::get_parse_error,
+    ParseContext, XtceError,
 };
 
 pub(super) fn add_container(
@@ -47,17 +48,28 @@ pub(super) fn add_container(
 }
 
 fn read_base_container(
-    mdb: &MissionDatabase,
+    mdb: &mut MissionDatabase,
     ctx: &ParseContext,
     node: &Node,
-) -> Result<(ContainerIdx, Option<MatchCriteria>), XtceError> {
+) -> Result<(ContainerIdx, Option<MatchCriteriaIdx>), XtceError> {
     let pref = read_mandatory_attribute::<String>(node, "containerRef")?;
     let cidx = resolve_ref(mdb, ctx, &pref, NameReferenceType::SequenceContainer)?;
+    let mut mcidx = None;
 
-    Ok((cidx, None))
+    for cnode in node.children() {
+        match cnode.tag_name().name() {
+            "RestrictionCriteria" => mcidx = Some(read_match_criteria(mdb, ctx, &cnode)?),
+            _ => {
+                log::warn!("ignoring base container unknown property '{}'", cnode.tag_name().name())
+            }
+        }
+    }
+
+    Ok((cidx, mcidx))
 }
+
 fn read_entry_list(
-    mdb: &MissionDatabase,
+    mdb: &mut MissionDatabase,
     ctx: &ParseContext,
     node: &Node,
     list: &mut Vec<ContainerEntry>,
@@ -79,12 +91,19 @@ fn read_entry_list(
 }
 
 fn read_para_entry(
-    mdb: &MissionDatabase,
+    mdb: &mut MissionDatabase,
     ctx: &ParseContext,
     node: &Node,
 ) -> Result<ContainerEntry, XtceError> {
     let pref = read_mandatory_attribute::<String>(node, "parameterRef")?;
-    let pidx = resolve_ref(mdb, ctx, &pref, NameReferenceType::Parameter)?;
+    let (pidx, aggr_path) = resolve_para_ref(mdb, ctx, &pref)?;
+
+    if let Some(_) = aggr_path {
+        return Err(XtceError::InvalidReference(format!(
+            "Cannot reference a aggregate member in the container parameter entry: {}",
+            pref
+        )));
+    }
 
     let mut entry = ContainerEntry {
         location_in_container: None,
@@ -98,7 +117,7 @@ fn read_para_entry(
 }
 
 fn read_common_entry_elements(
-    mdb: &MissionDatabase,
+    mdb: &mut MissionDatabase,
     ctx: &ParseContext,
     node: &Node,
     entry: &mut ContainerEntry,
@@ -147,8 +166,6 @@ fn read_location_in_container(
 
     Ok(loc)
 }
-
-
 
 impl FromStr for ReferenceLocationType {
     type Err = String;

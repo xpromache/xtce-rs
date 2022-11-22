@@ -40,6 +40,7 @@ pub enum XtceError {
     // added to the MDB because either is encountered later in the file or it depends on other item which is not added
     UnresolvedReference(String, NameReferenceType),
     UnresolvedReferences(String),
+    InvalidReference(String),
 }
 
 impl fmt::Display for XtceError {

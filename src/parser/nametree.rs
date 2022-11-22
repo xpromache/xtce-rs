@@ -1,4 +1,4 @@
-use crate::mdb::{NameDb, NameIdx, NameReferenceType, QualifiedName};
+use crate::mdb::{NameDb, NameIdx, NameReferenceType, QualifiedName, types::MemberPath, utils::parse_aggregate_member_path};
 use enum_map::EnumMap;
 use std::collections::HashMap;
 
@@ -6,11 +6,16 @@ use super::{utils::read_mandatory_name, XtceError};
 
 pub(crate) struct NameTree {
     pub name_db: NameDb,
-    pub systems: HashMap<QualifiedName, EnumMap<NameReferenceType, HashMap<NameIdx, roxmltree::NodeId>>>,
+    pub systems:
+        HashMap<QualifiedName, EnumMap<NameReferenceType, HashMap<NameIdx, roxmltree::NodeId>>>,
 }
 
 impl NameTree {
-    fn add_system(&mut self, name: &str, node: roxmltree::NodeId) -> Result<QualifiedName, XtceError> {
+    fn add_system(
+        &mut self,
+        name: &str,
+        node: roxmltree::NodeId,
+    ) -> Result<QualifiedName, XtceError> {
         let mut qn = self.qn(name);
         if qn.is_root() {
             return Ok(qn);
@@ -74,7 +79,7 @@ impl NameTree {
         reference: &str,
         relative_to: &QualifiedName,
         rtype: NameReferenceType,
-    ) -> Option<(&QualifiedName, NameIdx, Option<String>)> {
+    ) -> Option<(&QualifiedName, NameIdx, Option<MemberPath>)> {
         if reference.starts_with("/") {
             return self.find_ref(reference, &QualifiedName::empty(), rtype);
         } else if reference.starts_with("./") || reference.starts_with("..") {
@@ -102,7 +107,7 @@ impl NameTree {
         reference: &str,
         relative_to: &QualifiedName,
         rtype: NameReferenceType,
-    ) -> Option<(&QualifiedName, NameIdx, Option<String>)> {
+    ) -> Option<(&QualifiedName, NameIdx, Option<MemberPath>)> {
         let mut ss = relative_to.clone();
         let mut it = reference.split('/').peekable();
 
@@ -117,19 +122,32 @@ impl NameTree {
                 continue;
             }
 
-            let pidx = self.name_db.get(p)?;
-
             if it.peek().is_none() {
                 //reached the end, check we have an item of the correct type
+                //last component could be a path into an aggregate parameter
+
+                let mut member_path = None;
+                let mut pname = p;
+                if rtype == NameReferenceType::Parameter {
+                    if let Some(n) = p.find('.') {
+                        let (a, b) = p.split_at(n);
+                        member_path = Some(parse_aggregate_member_path(&self.name_db, b[1..].split('.').collect()).ok()?);
+                        pname = a;
+                    }
+                }
+
+                let pidx = self.name_db.get(pname)?;
+
                 return self.systems.get_key_value(&ss).and_then(|(k, v)| {
                     if v[rtype].contains_key(&pidx) {
-                        Some((k, pidx, None))
+                        Some((k, pidx, member_path))
                     } else {
                         None
                     }
                 });
             }
 
+            let pidx = self.name_db.get(p)?;
             ss.push(pidx);
 
             if !self.systems.contains_key(&ss) {
@@ -142,7 +160,8 @@ impl NameTree {
 
                     return self.systems.get_key_value(&ss).and_then(|(k, v)| {
                         if v[rtype].contains_key(&pidx) {
-                            Some((k, pidx, Some(it.collect::<Vec<&str>>().join("/"))))
+                            let member_path = parse_aggregate_member_path(&self.name_db, it.collect::<Vec<&str>>()).ok()?;
+                            Some((k, pidx, Some(member_path)))
                         } else {
                             None
                         }
@@ -170,7 +189,6 @@ pub(crate) fn build_name_tree(
     path: &mut QualifiedName,
     node: &roxmltree::Node,
 ) -> Result<(), XtceError> {
-    
     let name_str = read_mandatory_name(node)?;
     let name_idx = tree.add_sub_system(&path, name_str, node.id())?;
 
@@ -196,7 +214,11 @@ pub(crate) fn build_name_tree(
     Ok(())
 }
 
-fn build_tm_name_tree(tree: &mut NameTree, path: &mut QualifiedName, node: &roxmltree::Node) -> Result<(), XtceError> {
+fn build_tm_name_tree(
+    tree: &mut NameTree,
+    path: &mut QualifiedName,
+    node: &roxmltree::Node,
+) -> Result<(), XtceError> {
     for cnode in node.children() {
         match cnode.tag_name().name() {
             "ParameterTypeSet" => {
@@ -288,7 +310,11 @@ mod tests {
 
         let (x, _, pn) = ntree.resolve_ref("b/para3/a/b/c", &qn_abc, ptype).unwrap();
         assert_eq!(x, &qn_b);
-        assert_eq!(pn.unwrap(), "a/b/c");
+        assert_eq!(3, pn.unwrap().len());
+
+        let (x, _, pn) = ntree.resolve_ref("b/para3.a.b.c", &qn_abc, ptype).unwrap();
+        assert_eq!(x, &qn_b);
+        assert_eq!(3, pn.unwrap().len());
 
         let (x, _, pn) = ntree.resolve_ref("/b/para3", &qn_abc, ptype).unwrap();
         assert_eq!(x, &qn_b);

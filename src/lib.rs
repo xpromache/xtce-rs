@@ -1,14 +1,14 @@
 #[macro_use]
 extern crate enum_map;
-pub mod mdb;
-pub mod mdb_debug;
 pub mod value;
 pub mod pvlist;
-
-
-pub mod parser;
 pub mod bitbuffer;
+
+pub mod mdb;
+pub mod parser;
 pub mod proc;
+pub mod error;
+
 
 
 #[cfg(test)]
@@ -17,10 +17,6 @@ mod tests {
     use crate::{mdb::{MissionDatabase, NameDb}, proc::containers::process};
     use std::path::Path;
     // use lasso::{Rodeo, Spur};
-
-
-
-
 
     #[test]
     fn test_bogus2() {
