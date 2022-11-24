@@ -100,7 +100,7 @@ fn build_mdb(mdb: &mut MissionDatabase, name_tree: &NameTree, doc: &Document) ->
     let mut unresolved: Vec<(ParseContext, Reference)> = vec![];
 
     for (path, ssn) in &name_tree.systems {
-        println!("Creating space system {}", mdb.qn_to_string(path));
+        log::debug!("Creating space system {}", mdb.qn_to_string(path));
         mdb.new_space_system(path.clone()).unwrap();
         //create space system
         for (ntype, m) in ssn {
@@ -118,7 +118,6 @@ fn build_mdb(mdb: &mut MissionDatabase, name_tree: &NameTree, doc: &Document) ->
         }
     }
     while !unresolved.is_empty() {
-        println!("loooping---------------------------------------- unresolved: {}", unresolved.len());
         let mut unresolved1: Vec<(ParseContext, Reference)> = vec![];
 
         for (ctx, _) in &unresolved {

@@ -1,4 +1,3 @@
-use core::num;
 use std::{
     collections::HashMap,
     fmt::{self, Debug, Formatter},
@@ -11,26 +10,16 @@ use crate::mdb::{MissionDatabase, NameIdx, NamedItem, ParameterIdx};
 #[derive(Debug)]
 pub struct ParameterValue {
     pub pidx: ParameterIdx,
-    pub raw_value: RawValue,
-    pub eng_value: EngValue,
+    pub raw_value: Value,
+    pub eng_value: Value,
 }
 
-
-pub type RawValue = Value<ContainerPosition>;
-pub type EngValue = Value<()>;
-
-
-#[derive(Debug)]
-pub struct Value<T> {
-    pub v: ValueUnion<T>,
-    pub extra: T,
-}
 
 /// Unlike the Java Yamcs, we do not support the 32 bits integers or floats.
 /// It simplifies the code and no extra space is consumed becuase the enum is taking 16 bytes anyway.
 /// Note that the integer parameter extraction will shrink the numbers to fit into the size in bits specified in the type
-#[derive(Debug)]
-pub enum ValueUnion<T> {
+#[derive(Debug, PartialEq)]
+pub enum Value {
     Int64(i64),
     Uint64(u64),
     Double(f64),
@@ -39,23 +28,23 @@ pub enum ValueUnion<T> {
     StringValue(Box<String>),
     Enumerated(Box<EnumeratedValue>),
     Binary(Box<Vec<u8>>),
-    Aggregate(Box<AggregateValue<T>>),
+    Aggregate(Box<AggregateValue>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct EnumeratedValue {
     pub key: i64,
     pub value: String,
 }
 
-#[derive(Debug)]
-pub struct AggregateValue<T>(pub HashMap<NameIdx, Value<T>>);
+#[derive(Debug, PartialEq)]
+pub struct AggregateValue(pub HashMap<NameIdx, Value>);
 
 
-impl<T> ValueUnion<T> {
-    pub fn int_value(num_bits: usize, x: i64) -> ValueUnion<T> {
+impl Value {
+    pub fn int_value(num_bits: usize, x: i64) -> Value {
         if num_bits >= 64 {
-            return ValueUnion::Int64(x);
+            return Value::Int64(x);
         }
         let max: i64 = (1 << (num_bits - 1)) - 1;
         let min: i64 = -max - 1;
@@ -68,12 +57,12 @@ impl<T> ValueUnion<T> {
             y = min;
         }
 
-        ValueUnion::Int64(y)
+        Value::Int64(y)
     }
 
-    pub fn uint_value(num_bits: usize, x: u64) -> ValueUnion<T> {
+    pub fn uint_value(num_bits: usize, x: u64) -> Value {
         if num_bits >= 64 {
-            return ValueUnion::Uint64(x);
+            return Value::Uint64(x);
         }
 
         let max: u64 = (1 << num_bits) - 1;
@@ -82,7 +71,7 @@ impl<T> ValueUnion<T> {
             y = max
         }
 
-        ValueUnion::Uint64(y)
+        Value::Uint64(y)
     }
 }
 
@@ -96,8 +85,17 @@ pub struct ContainerPosition {
     // bit offset relative to the startOffset
     pub bit_offset: u32,
     pub bit_size: u32,
+
+    //if the extraction corresponds to an aggregate, this contains the details for the members
+    pub details: ContainerPositionDetails,
 }
 
+#[derive(Debug)]
+pub enum ContainerPositionDetails {
+    None,
+    Aggregate(HashMap<NameIdx, ContainerPosition>),
+    //TODO arrays
+}
 pub struct ParameterValueDebug<'a> {
     pv: &'a ParameterValue,
     mdb: &'a MissionDatabase,
@@ -126,25 +124,25 @@ impl std::fmt::Debug for ParameterValueDebug<'_> {
     }
 }
 
-fn write_value<T>(f: &mut Formatter<'_>, mdb: &MissionDatabase, v: &Value<T>) -> fmt::Result {
-    match &v.v {
-        ValueUnion::Int64(v) => write!(f, "{}", v)?,
-        ValueUnion::Uint64(v) => write!(f, "{}", v)?,
-        ValueUnion::Double(v) => write!(f, "{}", v)?,
-        ValueUnion::Boolean(v) => write!(f, "{}", v)?,
-        ValueUnion::StringValue(v) => write!(f, "{}", v)?,
-        ValueUnion::Enumerated(v) => write_enumerated(f, mdb, v)?,
-        ValueUnion::Binary(v) => write!(f, "{}", v.encode_hex::<String>())?,
-        ValueUnion::Aggregate(v) => write_aggregate(f, mdb, v)?,
+fn write_value(f: &mut Formatter<'_>, mdb: &MissionDatabase, v: &Value) -> fmt::Result {
+    match &v {
+        Value::Int64(v) => write!(f, "{}", v)?,
+        Value::Uint64(v) => write!(f, "{}", v)?,
+        Value::Double(v) => write!(f, "{}", v)?,
+        Value::Boolean(v) => write!(f, "{}", v)?,
+        Value::StringValue(v) => write!(f, "{}", v)?,
+        Value::Enumerated(v) => write_enumerated(f, v)?,
+        Value::Binary(v) => write!(f, "{}", v.encode_hex::<String>())?,
+        Value::Aggregate(v) => write_aggregate(f, mdb, v)?,
     }
 
     Ok(())
 }
 
-fn write_aggregate<T>(
+fn write_aggregate(
     f: &mut Formatter<'_>,
     mdb: &MissionDatabase,
-    v: &AggregateValue<T>,
+    v: &AggregateValue,
 ) -> fmt::Result {
     f.write_str("{")?;
     let mut first = true;
@@ -164,7 +162,6 @@ fn write_aggregate<T>(
 
 fn write_enumerated(
     f: &mut Formatter<'_>,
-    mdb: &MissionDatabase,
     v: &EnumeratedValue,
 ) -> fmt::Result {
     write!(f, "{{{}={}}}", v.key, v.value)
@@ -172,20 +169,14 @@ fn write_enumerated(
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
-    struct Bum {
-        idx: u32,
-        pv: ParameterValue,
-    }
     #[test]
     fn test_value() {
         println!("size of Vec<u32>: {}", std::mem::size_of::<Vec<u32>>());
         println!("size of String: {}", std::mem::size_of::<String>());
-        println!("size of Value: {}", std::mem::size_of::<EngValue>());
-        println!("size of RawValue: {}", std::mem::size_of::<RawValue>());
-        println!("size of Bum: {}", std::mem::size_of::<Bum>());
+        println!("size of Value: {}", std::mem::size_of::<Value>());
+        println!("size of RawValue: {}", std::mem::size_of::<Value>());
         println!("size of ParameterValue: {}", std::mem::size_of::<ParameterValue>());
     }
 

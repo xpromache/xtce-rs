@@ -14,14 +14,12 @@ pub mod error;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{mdb::{MissionDatabase, NameDb}, proc::containers::process};
+    use crate::{mdb::{MissionDatabase}, proc::containers::process};
     use std::path::Path;
-    // use lasso::{Rodeo, Spur};
-
+    
     #[test]
     fn test_bogus2() {
-        
-        println!("sizeof (mdb): {}", std::mem::size_of::<NameDb>());
+        env_logger::init();
         
         let mut mdb = MissionDatabase::new();
         let path = Path::new("/home/nm/git/yamcs/yamcs-core/src/test/resources/xtce/BogusSAT-2.xml");

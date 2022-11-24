@@ -173,7 +173,7 @@ impl NameTree {
         None
     }
 
-    fn qn(&self, qnstr: &str) -> QualifiedName {
+   fn qn(&self, qnstr: &str) -> QualifiedName {
         let mut r = QualifiedName::empty();
         for p in qnstr.split("/") {
             if !p.is_empty() {
@@ -206,7 +206,7 @@ pub(crate) fn build_name_tree(
                 //  read_command_meta_data(mdb, ctx, &cnode)?;
             }
             "" => {}
-            _ => println!("ignoring '{}'", cnode.tag_name().name()),
+            _ => log::warn!("ignoring global property '{}'", cnode.tag_name().name()),
         };
     }
     path.pop();
@@ -243,7 +243,7 @@ fn build_tm_name_tree(
                 //read_algorithm_set(mdb, ctx, &cnode)?;
             }
             "" => {}
-            _ => println!("NameTree ignoring '{}'", cnode.tag_name().name()),
+            _ => log::warn!("ignoring '{}'", cnode.tag_name().name()),
         };
     }
     Ok(())

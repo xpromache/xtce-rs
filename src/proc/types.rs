@@ -5,12 +5,12 @@ use crate::{
         types::{DataEncoding, DataType, TypeData, AggregateDataType, EnumeratedDataType},
         NameIdx, NamedItem,
     },
-    value::{AggregateValue, ContainerPosition, EngValue, EnumeratedValue, RawValue, ValueUnion}, error::MdbError,
+    value::{AggregateValue, ContainerPosition, EnumeratedValue, Value, ContainerPositionDetails}, error::MdbError,
 };
 
 use super::{encodings::extract_encoding, ProcCtx};
 
-pub(crate) fn extract(ptype: &DataType, ctx: &mut ProcCtx) -> Result<RawValue, MdbError> {
+pub(crate) fn extract(ptype: &DataType, ctx: &mut ProcCtx) -> Result<(Value, ContainerPosition), MdbError> {
     let mdb = ctx.mdb();
     if let DataEncoding::None = ptype.encoding {
         match &ptype.type_data {
@@ -28,55 +28,59 @@ pub(crate) fn extract(ptype: &DataType, ctx: &mut ProcCtx) -> Result<RawValue, M
     }
 }
 
+// extracts an aggregate from a packet by extracting all members in order
 fn extract_aggregate(
     atype: &AggregateDataType,
     ctx: &mut ProcCtx,
-) -> Result<RawValue, MdbError> {
+) -> Result<(Value, ContainerPosition), MdbError> {
     let mdb = ctx.mdb();
 
-    let mut aggrm = HashMap::<NameIdx, RawValue>::new();
+    let mut aggrm = HashMap::<NameIdx, Value>::new();
+    let mut posm = HashMap::<NameIdx, ContainerPosition>::new();
+    
     let bit_offset0 = ctx.cbuf.buf.get_position();
     let start_offset = ctx.cbuf.start_offset;
 
     for m in &atype.members {
         let dtype = mdb.get_data_type(m.dtype);
-        let member_rv = extract(dtype, ctx)?;
-        println!("Inserting for member {} value {:?}", mdb.name2str(m.name()), member_rv);
+        let (member_rv, cpos) = extract(dtype, ctx)?;
         aggrm.insert(m.name(), member_rv);
+        posm.insert(m.name(), cpos);
     }
     let aggrv = AggregateValue(aggrm);
 
     let bit_offset1 = ctx.cbuf.buf.get_position();
-    let rv = RawValue {
-        v: ValueUnion::Aggregate(Box::new(aggrv)),
-        extra: ContainerPosition {
+    let rv = Value::Aggregate(Box::new(aggrv));
+    let cpos = ContainerPosition {
             start_offset,
             bit_offset: bit_offset1 as u32,
             bit_size: (bit_offset1 - bit_offset0) as u32,
-        },
-    };
+            details: ContainerPositionDetails::Aggregate(posm)
+        };
+    
 
-    Ok(rv)
+    Ok((rv, cpos))
 }
 
+// transforms the raw value into an egineering value
 pub(crate) fn calibrate(
-    rawv: &RawValue,
+    rawv: &Value,
     dtype: &DataType,
     ctx: &mut ProcCtx,
-) -> Result<EngValue, MdbError> {
-    match &rawv.v {
-        ValueUnion::Int64(v) => from_signed_integer(*v, dtype, ctx),
-        ValueUnion::Uint64(v) => from_unsigned_integer(*v, dtype, ctx),
-        ValueUnion::Double(v) => todo!(),
-        ValueUnion::Boolean(_) => todo!(),
-        ValueUnion::StringValue(v) => todo!(),
-        ValueUnion::Binary(v) => todo!(),
-        ValueUnion::Aggregate(v) => from_aggregate(v, dtype, ctx),
-        _ => panic!("Unexpected raw data type {:?}", rawv.v),
+) -> Result<Value, MdbError> {
+    match &rawv {
+        Value::Int64(v) => from_signed_integer(*v, dtype, ctx),
+        Value::Uint64(v) => from_unsigned_integer(*v, dtype, ctx),
+        Value::Double(v) => todo!(),
+        Value::Boolean(_) => todo!(),
+        Value::StringValue(v) => todo!(),
+        Value::Binary(v) => todo!(),
+        Value::Aggregate(v) => from_aggregate(v, dtype, ctx),
+        _ => panic!("Unexpected raw data type {:?}", rawv),
     }
 }
 
-fn from_signed_integer(v: i64, dt: &DataType, _ctx: &ProcCtx) -> Result<EngValue, MdbError> {
+fn from_signed_integer(v: i64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value, MdbError> {
     if let Some(cal) = &dt.calibrator {
         todo!()
     }
@@ -85,16 +89,16 @@ fn from_signed_integer(v: i64, dt: &DataType, _ctx: &ProcCtx) -> Result<EngValue
         TypeData::Integer(idt) => {
             let bitsize = idt.size_in_bits as usize;
             if idt.signed {
-                ValueUnion::int_value(bitsize, v)
+                Value::int_value(bitsize, v)
             } else {
                 let v1 = if v < 0 { 0 } else { v as u64 };
-                ValueUnion::uint_value(bitsize, v1)
+                Value::uint_value(bitsize, v1)
             }
         }
-        TypeData::Float(_) => ValueUnion::Double(v as f64),
-        TypeData::String(_) => ValueUnion::StringValue(Box::new(v.to_string())),
-        TypeData::Boolean(_) => ValueUnion::Boolean(v != 0),
-        TypeData::Enumerated(edt) => ValueUnion::Enumerated(get_enumeration(edt, v)),
+        TypeData::Float(_) => Value::Double(v as f64),
+        TypeData::String(_) => Value::StringValue(Box::new(v.to_string())),
+        TypeData::Boolean(_) => Value::Boolean(v != 0),
+        TypeData::Enumerated(edt) => Value::Enumerated(get_enumeration(edt, v)),
         TypeData::AbsoluteTime(_) => todo!(),
         _ => {
             return Err(MdbError::InvalidValue(format!(
@@ -104,10 +108,11 @@ fn from_signed_integer(v: i64, dt: &DataType, _ctx: &ProcCtx) -> Result<EngValue
         }
     };
 
-    Ok(EngValue { v: x, extra: () })
+    Ok(x)
 }
 
-fn from_unsigned_integer(v: u64, dt: &DataType, _ctx: &ProcCtx) -> Result<EngValue, MdbError> {
+// computes the engineering value from a unsigned integer raw value
+fn from_unsigned_integer(rv: u64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value, MdbError> {
     if let Some(cal) = &dt.calibrator {
         todo!()
     }
@@ -115,20 +120,19 @@ fn from_unsigned_integer(v: u64, dt: &DataType, _ctx: &ProcCtx) -> Result<EngVal
         TypeData::Integer(idt) => {
             let bitsize = idt.size_in_bits as usize;
             if idt.signed {
-                if v > i64::MAX as u64 {
-                    ValueUnion::uint_value(bitsize, i64::MAX as u64)
+                if rv > i64::MAX as u64 {
+                    Value::uint_value(bitsize, i64::MAX as u64)
                 } else {
-                    ValueUnion::uint_value(bitsize, v)
+                    Value::uint_value(bitsize, rv)
                 }
             } else {
-                println!("----------------- bitsize: {}, v: {}", bitsize, v);
-                ValueUnion::uint_value(bitsize, v)
+                Value::uint_value(bitsize, rv)
             }
         }
-        TypeData::Float(_) => ValueUnion::Double(v as f64),
-        TypeData::String(_) => ValueUnion::StringValue(Box::new(v.to_string())),
-        TypeData::Boolean(_) => ValueUnion::Boolean(v != 0),
-        TypeData::Enumerated(edt) => ValueUnion::Enumerated(get_enumeration(edt, v as i64)),
+        TypeData::Float(_) => Value::Double(rv as f64),
+        TypeData::String(_) => Value::StringValue(Box::new(rv.to_string())),
+        TypeData::Boolean(_) => Value::Boolean(rv != 0),
+        TypeData::Enumerated(edt) => Value::Enumerated(get_enumeration(edt, rv as i64)),
         TypeData::AbsoluteTime(_) => todo!(),
         _ => {
             return Err(MdbError::InvalidValue(format!(
@@ -138,16 +142,17 @@ fn from_unsigned_integer(v: u64, dt: &DataType, _ctx: &ProcCtx) -> Result<EngVal
         }
     };
 
-    Ok(EngValue { v: x, extra: () })
+    Ok(x)
 }
 
+// computes an aggregate engineering value from an aggregate raw value
 fn from_aggregate(
-    aggr_rv: &Box<AggregateValue<ContainerPosition>>,
+    aggr_rv: &Box<AggregateValue>,
     dt: &DataType,
     ctx: &mut ProcCtx,
-) -> Result<EngValue, MdbError> {
+) -> Result<Value, MdbError> {
     let mdb = ctx.mdb();
-    let mut aggrm = HashMap::<NameIdx, EngValue>::new();
+    let mut aggrm = HashMap::<NameIdx, Value>::new();
 
     if let TypeData::Aggregate(atype) = &dt.type_data {
         for m in &atype.members {
@@ -168,43 +173,19 @@ fn from_aggregate(
         return Err(MdbError::InvalidValue(serr));
     }
 
-    let ev = EngValue { v: ValueUnion::Aggregate(Box::new(AggregateValue(aggrm))), extra: () };
+    let ev = Value::Aggregate(Box::new(AggregateValue(aggrm)));
 
     Ok(ev)
 }
 
-fn get_enumeration(edt: &EnumeratedDataType, v: i64) -> Box<EnumeratedValue> {
+// computes an enumerated engineering value from a signed integer raw values
+fn get_enumeration(edt: &EnumeratedDataType, rv: i64) -> Box<EnumeratedValue> {
     for e in &edt.enumeration {
-        if e.value <= v && v <= e.max_value {
-            return Box::new(EnumeratedValue { key: v, value: e.label.clone() });
+        if e.value <= rv && rv <= e.max_value {
+            return Box::new(EnumeratedValue { key: rv, value: e.label.clone() });
         }
     }
 
-    return Box::new(EnumeratedValue { key: v, value: String::from("UNDEF") });
+    return Box::new(EnumeratedValue { key: rv, value: String::from("UNDEF") });
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::proc::containers::process;
-    use std::path::Path;
-    // use lasso::{Rodeo, Spur};
-
-    #[test]
-    fn test_bogus2() {
-        let x: i64 = i32::MIN as i64 - 100;
-        let y = x as i32;
-        let z: f64 = x as f64;
-        let a: i32 = z as i32;
-
-        println!("x: {}, y: {}, z: {}", x, y, z);
-    }
-
-    fn integer_convert<F, T>(x: F) -> T
-    where
-        T: TryFrom<F>,
-        <T as TryFrom<F>>::Error: std::fmt::Debug,
-    {
-        x.try_into().unwrap()
-    }
-}

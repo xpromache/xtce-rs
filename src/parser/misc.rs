@@ -29,9 +29,10 @@ pub(super) fn read_match_criteria(
             }
             "CustomAlgorithm" => {
                 todo!()
-            }
+            },
+            "" => continue,
             _ => {
-                log::warn!("ignoring unknown  '{}'", cnode.tag_name().name());
+                log::warn!("ignoring unknown element in match criteria '{}'", cnode.tag_name().name());
                 continue;
             }
         };
@@ -64,6 +65,7 @@ pub(super) fn read_comparison_list(
     for cnode in node.children() {
         match cnode.tag_name().name() {
             "Comparison" => r.push(read_comparison(mdb, ctx, &cnode)?),
+            "" => continue,
             _ => {
                 log::warn!(
                     "ignoring unknown element in comparison list '{}'",

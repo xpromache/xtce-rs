@@ -28,7 +28,7 @@ pub(super) fn add_parameter_type(
         "AggregateParameterType" => read_aggregate_parameter_type(mdb, ctx)?,
         "ArrayParameterType" => read_array_parameter_type(mdb, ctx)?,
         _ => {
-            println!("ignoring read_parameter_type '{}'", ctx.node.tag_name().name());
+            log::warn!("ignoring parameter type '{}'", ctx.node.tag_name().name());
             return Ok(());
         }
     };
@@ -100,7 +100,7 @@ pub(super) fn read_float_parameter_type(
                 )?);
             }
             "" | "LongDescription" | "UnitSet" => {}
-            _ => log::warn!("ignoring float parameter type element '{}'", cnode.tag_name().name()),
+            _ => log::warn!("ignoring float parameter type unknown property '{}'", cnode.tag_name().name()),
         };
     }
 
@@ -138,11 +138,11 @@ pub(super) fn read_boolean_parameter_type(
                 )?);
             }
             "" | "LongDescription" | "UnitSet" => {}
-            _ => println!("ignoring read_enumerated_parameter_type '{}'", cnode.tag_name().name()),
+            _ => log::warn!("ignoring boolean parameter type unknown property '{}'", cnode.tag_name().name()),
         };
     }
 
-    let mut bpt = BooleanDataType { one_string_value: osv, zero_string_value: zsv };
+    let bpt = BooleanDataType { one_string_value: osv, zero_string_value: zsv };
 
     Ok((encoding, TypeData::Boolean(bpt)))
 }
@@ -176,11 +176,11 @@ pub(super) fn read_enumerated_parameter_type(
                 read_enumeration_list(&mut enumeration, &cnode)?;
             }
             "" | "LongDescription" | "UnitSet" => {}
-            _ => println!("ignoring read_enumerated_parameter_type '{}'", cnode.tag_name().name()),
+            _ => log::warn!("ignoring enumerated parameter type unknown property '{}'", cnode.tag_name().name()),
         };
     }
 
-    let mut ept = EnumeratedDataType { enumeration, default_alarm: None, context_alarm: vec![] };
+    let ept = EnumeratedDataType { enumeration, default_alarm: None, context_alarm: vec![] };
     Ok((encoding, TypeData::Enumerated(ept)))
 }
 
@@ -217,11 +217,11 @@ pub(super) fn read_string_parameter_type(
                 )?);
             }
             "" | "LongDescription" | "UnitSet" => {}
-            _ => println!("ignoring read_float_parameter_type '{}'", cnode.tag_name().name()),
+            _ => log::warn!("ignoring string parameter type unknown property '{}'", cnode.tag_name().name()),
         };
     }
 
-    let mut spt = StringDataType {};
+    let spt = StringDataType {};
 
     Ok((encoding, TypeData::String(spt)))
 }
@@ -259,7 +259,7 @@ pub(super) fn read_binary_parameter_type(
                 )?);
             }
             "" | "LongDescription" | "UnitSet" => {}
-            _ => println!("ignoring read_float_parameter_type '{}'", cnode.tag_name().name()),
+            _ => log::warn!("ignoring binary parameter type unknown property '{}'", cnode.tag_name().name()),
         };
     }
 
@@ -268,11 +268,11 @@ pub(super) fn read_binary_parameter_type(
     Ok((encoding, TypeData::Binary(bpt)))
 }
 
+//reads an aggregate parameter type from the XTCE
 pub(super) fn read_aggregate_parameter_type(
     mdb: &mut MissionDatabase,
     ctx: &ParseContext,
 ) -> Result<(DataEncoding, TypeData), XtceError> {
-    let name = ctx.name;
     let mut members = Vec::new();
 
     for cnode in ctx.node.children() {
@@ -281,6 +281,7 @@ pub(super) fn read_aggregate_parameter_type(
                 for mnode in cnode.children() {
                     match mnode.tag_name().name() {
                         "Member" => members.push(read_member(mdb, ctx, &mnode)?),
+                        "" => continue,
                         _ => log::warn!(
                             "ignoring member list unknown property '{}'",
                             mnode.tag_name().name()
@@ -290,7 +291,7 @@ pub(super) fn read_aggregate_parameter_type(
             }
             "" | "LongDescription" => {}
             _ => log::warn!(
-                "ignoring aggreagate parameter type  unknown property '{}'",
+                "ignoring aggreagate parameter type unknown property '{}'",
                 cnode.tag_name().name()
             ),
         };
@@ -300,6 +301,7 @@ pub(super) fn read_aggregate_parameter_type(
     Ok((DataEncoding::None, TypeData::Aggregate(apt)))
 }
 
+// reads a member of an aggregate type from the XTCE
 fn read_member(
     mdb: &mut MissionDatabase,
     ctx: &ParseContext,
@@ -350,7 +352,7 @@ pub(super) fn read_absolute_time_parameter_type(
             }
             "" => {}
             _ => {
-                println!("ignoring read_absolute_time_parameter_type '{}'", cnode.tag_name().name())
+                log::warn!("ignoring read_absolute_time_parameter_type '{}'", cnode.tag_name().name())
             }
         };
     }

@@ -3,6 +3,7 @@ use crate::{
         ContainerEntryData, ContainerIdx, MissionDatabase, NamedItem, ParameterIdx,
         ReferenceLocationType, SequenceContainer,
     },
+    proc::criteria_evaluator::MatchResult,
     pvlist::ParameterValueList,
     value::ParameterValue,
 };
@@ -32,12 +33,14 @@ pub fn process(
 
 fn extract_container(ctx: &mut ProcCtx, container: &SequenceContainer) -> Result<(), MdbError> {
     let mdb = ctx.mdb();
+    log::debug!("Extracting container {}", mdb.name2str(container.name()));
+
     //let pdata: &mut ProcessorData = &mut ctx.pdata;
 
     for entry in &container.entries {
         if let Some(mcidx) = &entry.include_condition {
             let evaluator = ctx.pdata.get_criteria_evaluator(*mcidx);
-            if !evaluator.evaluate(ctx) {
+            if evaluator.evaluate(ctx) != MatchResult::OK {
                 continue;
             }
         }
@@ -60,25 +63,43 @@ fn extract_container(ctx: &mut ProcCtx, container: &SequenceContainer) -> Result
         extract_entry(&entry.data, ctx)?;
     }
 
-    if let Some((base_container_idx, mcidx)) = &container.base_container {
-        if match mcidx {
-            Some(mcidx) =>   {
-                let evaluator = ctx.pdata.get_criteria_evaluator(*mcidx);
-                evaluator.evaluate(ctx) 
-            },
-            None => true
-        } {
+    if let Some(children) = mdb.child_containers.get(&container.idx) {
+        for c in children {
+            let child = mdb.get_container(*c);
 
+            //unwrap is ok becasue the child has to have the base_container set to its parent
+            let mcidx = child.base_container.unwrap().1;
+            let match_res = match mcidx {
+                Some(mcidx) => {
+                    let evaluator = ctx.pdata.get_criteria_evaluator(mcidx);
+                    evaluator.evaluate(ctx)
+                }
+                //no match criteria means it always matches
+                None => MatchResult::OK,
+            };
+
+            let log_level = match match_res {
+                MatchResult::NOK | MatchResult::OK => log::Level::Trace,
+                MatchResult::UNDEF => log::Level::Info,
+                MatchResult::ERROR => log::Level::Warn,
+            };
+            log::log!(log_level,
+                "Match result for {} -> {} inheritance: {:?}",
+                mdb.name2str(container.name()),
+                mdb.name2str(child.name()),
+                match_res
+            );
+    
+            if match_res == MatchResult::OK {
+                extract_container(ctx, child)?;
+            }
         }
     }
 
     Ok(())
 }
 
-fn extract_entry<'a, 'b>(
-    entry: &'a ContainerEntryData,
-    ctx: &mut ProcCtx,
-) -> Result<(), MdbError> {
+fn extract_entry<'a, 'b>(entry: &'a ContainerEntryData, ctx: &mut ProcCtx) -> Result<(), MdbError> {
     match *entry {
         ContainerEntryData::ParameterRef(pidx) => extract_parameter(pidx, ctx)?,
         ContainerEntryData::ContainerRef(_) => todo!(),
@@ -99,12 +120,10 @@ fn extract_parameter(pidx: ParameterIdx, ctx: &mut ProcCtx) -> Result<(), MdbErr
     )))?;
     let dtype = mdb.get_data_type(ptype_idx);
 
-    let raw_value = types::extract(dtype, ctx)?;
+    let (raw_value, cpos) = types::extract(dtype, ctx)?;
     let eng_value = types::calibrate(&raw_value, dtype, ctx)?;
 
     let pv = ParameterValue { pidx, raw_value, eng_value };
-
-    println!("------------ Yuhuuu got our first pv: {:?}", pv);
 
     ctx.result.push(pv);
 

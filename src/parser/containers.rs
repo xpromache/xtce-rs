@@ -4,15 +4,15 @@ use roxmltree::Node;
 
 use crate::{
     mdb::{
-        Comparison, ContainerEntry, ContainerEntryData, ContainerIdx, IntegerValue,
-        LocationInContainerInBits, MatchCriteria, MatchCriteriaIdx, MissionDatabase,
-        NameReferenceType, ReferenceLocationType, SequenceContainer,
+        ContainerEntry, ContainerEntryData, ContainerIdx, IntegerValue,
+        LocationInContainerInBits, MatchCriteriaIdx, MissionDatabase,
+        NameReferenceType, ReferenceLocationType, SequenceContainer, Index,
     },
     parser::utils::{read_attribute, read_mandatory_attribute, read_name_description},
 };
 
 use super::{
-    misc::{read_integer_value, read_match_criteria, resolve_ref, resolve_para_ref},
+    misc::{read_integer_value, read_match_criteria, resolve_para_ref, resolve_ref},
     utils::get_parse_error,
     ParseContext, XtceError,
 };
@@ -28,7 +28,6 @@ pub(super) fn add_container(
 
     let mut base_container = None;
 
-    println!("aici 1 name: {}", mdb.name2str(ctx.name));
     for cnode in ctx.node.children() {
         match cnode.tag_name().name() {
             "EntryList" => {
@@ -37,12 +36,12 @@ pub(super) fn add_container(
             "BaseContainer" => {
                 base_container.replace(read_base_container(mdb, ctx, &cnode)?);
             }
+            "LongDescription" | "" => continue,
             _ => log::warn!("ignoring container unknown property '{}'", cnode.tag_name().name()),
         };
     }
-    println!("aici 2 name: {}", mdb.name2str(ctx.name));
-
-    let sc = SequenceContainer { ndescr, base_container, abstract_, entries: entry_list };
+    
+    let sc = SequenceContainer { ndescr, base_container, abstract_, entries: entry_list, idx: Index::invalid() };
     mdb.add_container(ctx.path, sc);
     Ok(())
 }
@@ -59,6 +58,7 @@ fn read_base_container(
     for cnode in node.children() {
         match cnode.tag_name().name() {
             "RestrictionCriteria" => mcidx = Some(read_match_criteria(mdb, ctx, &cnode)?),
+            "" => continue,
             _ => {
                 log::warn!("ignoring base container unknown property '{}'", cnode.tag_name().name())
             }
@@ -80,6 +80,7 @@ fn read_entry_list(
             "ContainerRefEntry" => {}
             "IndirectParameterRefEntry" => {}
             "ArrayParameterRefEntry" => {}
+            "" => continue,
             _ => log::warn!(
                 "ignoring sequence container entry list unknown property '{}'",
                 cnode.tag_name().name()
@@ -131,6 +132,7 @@ fn read_common_entry_elements(
             "IncludeCondition" => {
                 entry.include_condition.replace(read_match_criteria(mdb, ctx, &cnode)?);
             }
+            "" => continue,
             _ => log::warn!("ignoring unknown  '{}'", cnode.tag_name().name()),
         };
     }

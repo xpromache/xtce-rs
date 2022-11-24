@@ -35,7 +35,7 @@ pub(super) fn read_integer_data_encoding(
     for cnode in node.children() {
         match cnode.tag_name().name() {
             "" => {}
-            _ => println!("ignoring read_integer_data_encoding type '{}'", cnode.tag_name().name()),
+            _ => log::warn!("ignoring integer data encoding unknown property '{}'", cnode.tag_name().name()),
         };
     }
 
@@ -85,7 +85,7 @@ pub(super) fn read_float_data_encoding(
     for cnode in node.children() {
         match cnode.tag_name().name() {
             "" => {}
-            _ => println!("ignoring read_integer_data_encoding '{}'", cnode.tag_name().name()),
+            _ => log::warn!("ignoring float data encoding unknown property '{}'", cnode.tag_name().name()),
         };
     }
     Ok(FloatDataEncoding { size_in_bits, encoding })
@@ -164,13 +164,13 @@ pub(super) fn read_string_data_encoding(
                 }
             }
             "" => {}
-            _ => println!("ignoring read_string_data_encoding '{}'", cnode.tag_name().name()),
+            _ => log::warn!("ignoring string data encoding unknown property '{}'", cnode.tag_name().name()),
         };
     }
     Ok(StringDataEncoding {
-        sizeType: StringSizeType::Fixed,
+        size_type: StringSizeType::Fixed,
         size_in_bits,
-        sizeInBitsOfSizeTag: 0,
+        size_in_bits_of_size_tag: 0,
         encoding,
         termination_char,
     })

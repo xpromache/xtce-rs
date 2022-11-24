@@ -1,18 +1,21 @@
 use crate::{
     bitbuffer::BitBuffer,
-    mdb::{MatchCriteria, MatchCriteriaIdx, MissionDatabase},
-    pvlist::ParameterValueList, error::MdbError,
+    error::MdbError,
+    mdb::{
+        utils::get_member_value, MatchCriteria, MatchCriteriaIdx, MissionDatabase,
+        ParameterInstanceRef,
+    },
+    pvlist::ParameterValueList,
+    value::Value,
 };
 
-use self::criteria_evaluator::{CriteriaEvaluator};
+use self::criteria_evaluator::CriteriaEvaluator;
 
 pub mod containers;
 pub mod criteria_evaluator;
 pub mod encodings;
 pub mod misc;
 pub mod types;
-
-
 
 pub struct ProcessorData {
     evaluators: Vec<Box<dyn CriteriaEvaluator>>,
@@ -37,7 +40,9 @@ impl ProcessorData {
     ) -> Result<Box<dyn CriteriaEvaluator>, MdbError> {
         let res = match criteria {
             MatchCriteria::Comparison(comp) => criteria_evaluator::from_comparison(mdb, comp)?,
-            MatchCriteria::ComparisonList(clist) => criteria_evaluator::from_comparison_list(mdb, clist)?,
+            MatchCriteria::ComparisonList(clist) => {
+                criteria_evaluator::from_comparison_list(mdb, clist)?
+            }
         };
 
         Ok(res)
@@ -84,5 +89,18 @@ pub(crate) struct ProcCtx<'a, 'b, 'c> {
 impl<'a> ProcCtx<'a, '_, '_> {
     fn mdb(&mut self) -> &'a MissionDatabase {
         self.mdb
+    }
+
+    fn get_param_value(&self, para_ref: &ParameterInstanceRef) -> Option<&Value> {
+        if para_ref.instance != 0 {
+            todo!()
+        }
+        self.result.last_inserted(para_ref.pidx).map(|pv| &pv.eng_value).map_or(None, |val| {
+            if let Some(path) = &para_ref.member_path {
+                get_member_value(val, path)
+            } else {
+                Some(val)
+            }
+        })
     }
 }

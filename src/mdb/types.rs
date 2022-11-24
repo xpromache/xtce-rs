@@ -2,7 +2,7 @@ use std::fmt::{self, Formatter};
 
 use smallvec::SmallVec;
 
-use crate::{bitbuffer::ByteOrder, error::MdbError, value::ValueUnion};
+use crate::{bitbuffer::ByteOrder, error::MdbError, value::Value};
 
 use super::{DataTypeIdx, IntegerValue, NameDescription, NameIdx, NamedItem, UnitType, MissionDatabase};
 
@@ -62,9 +62,9 @@ pub enum StringSizeType {
 
 #[derive(Debug)]
 pub struct StringDataEncoding {
-    pub sizeType: StringSizeType,
+    pub size_type: StringSizeType,
     pub size_in_bits: u32,
-    pub sizeInBitsOfSizeTag: u8,
+    pub size_in_bits_of_size_tag: u8,
     pub encoding: String,
     pub termination_char: u8,
 }
@@ -149,7 +149,7 @@ impl NamedItem for DataType {
 impl DataType {
     /// Converts a string to a value corresponding to the given data type
     ///
-    pub fn from_str(&self, value: &str, calibrated: bool) -> Result<ValueUnion<()>, MdbError> {
+    pub fn from_str(&self, value: &str, calibrated: bool) -> Result<Value, MdbError> {
         if calibrated {
             match &self.type_data {
                 TypeData::Integer(idt) => parse_integer(value, idt.signed, idt.size_in_bits),
@@ -179,7 +179,7 @@ impl DataType {
     }
 }
 
-fn parse_integer(value: &str, signed: bool, size_in_bits: u32) -> Result<ValueUnion<()>, MdbError> {
+fn parse_integer(value: &str, signed: bool, size_in_bits: u32) -> Result<Value, MdbError> {
     let x = value.parse::<i128>()?;
     let max = if signed { (1i128 << (size_in_bits - 1)) - 1 } else { (1i128 << size_in_bits) - 1 };
     let min = if signed { -(1i128 << (size_in_bits - 1)) } else { 0 };
@@ -192,17 +192,17 @@ fn parse_integer(value: &str, signed: bool, size_in_bits: u32) -> Result<ValueUn
     };
 
     if signed {
-        Ok(ValueUnion::Int64(x as i64))
+        Ok(Value::Int64(x as i64))
     } else {
-        Ok(ValueUnion::Uint64(x as u64))
+        Ok(Value::Uint64(x as u64))
     }
 }
 
-fn parse_eng_boolean(value: &str, bdt: &BooleanDataType) -> Result<ValueUnion<()>, MdbError> {
+fn parse_eng_boolean(value: &str, bdt: &BooleanDataType) -> Result<Value, MdbError> {
     if value == bdt.zero_string_value {
-        Ok(ValueUnion::Boolean(false))
+        Ok(Value::Boolean(false))
     } else if value == bdt.one_string_value {
-        Ok(ValueUnion::Boolean(true))
+        Ok(Value::Boolean(true))
     } else {
         Err(MdbError::InvalidValue(format!(
             "Invalid value '{}' for boolean type. Expected {} or {}",
@@ -211,11 +211,11 @@ fn parse_eng_boolean(value: &str, bdt: &BooleanDataType) -> Result<ValueUnion<()
     }
 }
 
-fn parse_eng_enumerated(value: &str, edt: &EnumeratedDataType) -> Result<ValueUnion<()>, MdbError> {
+fn parse_eng_enumerated(value: &str, edt: &EnumeratedDataType) -> Result<Value, MdbError> {
     edt.enumeration
         .iter()
         .find(|ev| ev.label == value)
-        .map(|v| ValueUnion::StringValue(Box::new(v.label.clone())))
+        .map(|v| Value::StringValue(Box::new(v.label.clone())))
         .ok_or(MdbError::InvalidValue(format!("Value {} not valid for type", value)))
 }
 
@@ -244,23 +244,6 @@ pub struct IntegerDataType {
     pub context_alarm: Vec<NumericContextAlarm>,
 }
 
-impl IntegerDataType {
-    fn max_value(&self) -> i128 {
-        if self.signed {
-            (1i128 << (self.size_in_bits - 1)) - 1
-        } else {
-            (1i128 << self.size_in_bits) - 1
-        }
-    }
-
-    fn min_value(&self) -> i128 {
-        if self.signed {
-            -(1i128 << (self.size_in_bits - 1))
-        } else {
-            0
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct StringDataType {}

@@ -42,6 +42,9 @@ pub struct MissionDatabase {
     pub parameters: Vec<Parameter>,
     pub containers: Vec<SequenceContainer>,
     pub match_criteria: Vec<MatchCriteria>,
+
+    //this is the reverse of the base containers relation
+    pub child_containers: HashMap<ContainerIdx, Vec<ContainerIdx>>,
 }
 
 pub trait NamedItem {
@@ -170,6 +173,10 @@ impl Index {
     pub fn index(&self) -> usize {
         (self.0.get() - 1) as usize
     }
+
+    pub fn invalid() -> Self {
+        Self(std::num::NonZeroU32::new(u32::MAX).unwrap())
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -252,6 +259,7 @@ pub struct SequenceContainer {
     //abstract is a reserved word in Rust
     pub abstract_: bool,
     pub entries: Vec<ContainerEntry>,
+    pub idx: ContainerIdx
 }
 
 impl NamedItem for SequenceContainer {
@@ -332,7 +340,7 @@ pub struct ParameterInstanceRef {
 }
 
 impl ParameterInstanceRef {
-    fn to_string(&self, mdb: &MissionDatabase) -> String {
+    pub fn to_string(&self, mdb: &MissionDatabase) -> String {
         let p = mdb.get_parameter(self.pidx);
         let mut r = mdb.name2str(p.name()).to_string();
 
@@ -370,7 +378,7 @@ pub struct DynamicValueType {}
 
 
 pub struct SpaceSystem {
-    id: SpaceSystemIdx,
+    pub id: SpaceSystemIdx,
     pub fqn: QualifiedName,
     pub name: NameDescription,
     pub parameters: HashMap<NameIdx, ParameterIdx>,
@@ -405,6 +413,7 @@ impl MissionDatabase {
             parameters: Vec::new(),
             containers: Vec::new(),
             match_criteria: Vec::new(),
+            child_containers: HashMap::new()
         };
         //create the root space system - it has "" name and an empty qualified name
         let ss_idx = SpaceSystemIdx::new(0);
@@ -466,15 +475,25 @@ impl MissionDatabase {
     pub fn add_container(
         &mut self,
         space_system: &QualifiedName,
-        container: SequenceContainer,
+        mut container: SequenceContainer,
     ) -> ParameterIdx {
         let name = container.name();
 
         let idx = ContainerIdx::new(self.containers.len());
+        container.idx = idx;
+        let base_idx = container.base_container.map(|(idx, _)| idx);
+
         self.containers.push(container);
+
+      
 
         let ss = self.get_space_system_mut(space_system).unwrap();
         ss.containers.insert(name, idx);
+
+        if let Some(base_idx) = base_idx {
+            self.child_containers.entry(base_idx).or_insert(Vec::new()).push(idx);
+        }
+
         idx
     }
 
