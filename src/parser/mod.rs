@@ -24,6 +24,11 @@ use self::containers::add_container;
 use self::nametree::{build_name_tree, NameTree};
 use self::parameters::add_parameter;
 
+// references to _yamcs_ignore are resolved automatically to an unexisting parameter.
+const IGNORE_PARAM_NAME: &str = "_yamcs_ignore";
+const INVALID_PARAM_IDX: ParameterIdx = ParameterIdx::invalid();
+
+
 #[derive(Debug)]
 pub struct XtceParseError {
     pub msg: String,
@@ -41,6 +46,7 @@ pub enum XtceError {
     UnresolvedReference(String, NameReferenceType),
     UnresolvedReferences(String),
     InvalidReference(String),
+    InvalidValue(String)
 }
 
 impl fmt::Display for XtceError {

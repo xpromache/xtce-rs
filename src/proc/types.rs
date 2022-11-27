@@ -73,7 +73,7 @@ pub(crate) fn calibrate(
         Value::Uint64(v) => from_unsigned_integer(*v, dtype, ctx),
         Value::Double(v) => todo!(),
         Value::Boolean(_) => todo!(),
-        Value::StringValue(v) => todo!(),
+        Value::StringValue(v) => from_string(v, dtype, ctx),
         Value::Binary(v) => todo!(),
         Value::Aggregate(v) => from_aggregate(v, dtype, ctx),
         _ => panic!("Unexpected raw data type {:?}", rawv),
@@ -156,7 +156,7 @@ fn from_aggregate(
 
     if let TypeData::Aggregate(atype) = &dt.type_data {
         for m in &atype.members {
-            let member_rv = aggr_rv.0.get(&m.name()).ok_or(MdbError::InvalidValue(format!(
+            let member_rv = aggr_rv.0.get(&m.name()).ok_or_else(|| MdbError::InvalidValue(format!(
                 "Error when calibrating aggregate value for type:
             aggregate raw value does not contain value for member {}.
             Got value: {:?} )",
@@ -189,3 +189,22 @@ fn get_enumeration(edt: &EnumeratedDataType, rv: i64) -> Box<EnumeratedValue> {
     return Box::new(EnumeratedValue { key: rv, value: String::from("UNDEF") });
 }
 
+
+
+// computes the engineering value from a string raw value
+fn from_string(rv: &str, dt: &DataType, _ctx: &ProcCtx) -> Result<Value, MdbError> {    
+    let x = match &dt.type_data {
+        TypeData::String(_) => Value::StringValue(Box::new(rv.to_owned())),
+        TypeData::Integer(_) => todo!(),
+        TypeData::Float(_) => todo!(),
+        TypeData::Binary(_) => todo!(),
+        TypeData::Boolean(_) => todo!(),
+        TypeData::Enumerated(_) => todo!(),
+        TypeData::Aggregate(_) => todo!(),
+        TypeData::Array(_) => todo!(),
+        TypeData::AbsoluteTime(_) => todo!(),
+
+    };
+
+    Ok(x)
+}

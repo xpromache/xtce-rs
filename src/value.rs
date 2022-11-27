@@ -75,6 +75,68 @@ impl Value {
     }
 }
 
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Int64(x) => write!(f, "{}", x),
+            Value::Uint64(x) => write!(f, "{}", x),
+            Value::Double(x) => write!(f, "{}", x),
+            Value::Boolean(x) => write!(f, "{}", x),
+            Value::StringValue(x) => write!(f, "{}", x),
+            Value::Enumerated(x) => todo!(),
+            Value::Binary(x) => todo!(),
+            Value::Aggregate(x) => todo!(),
+        }        
+    }
+}
+
+impl TryFrom<Value> for i64 {
+    type Error = ();
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match &value {
+            Value::Int64(x) => Ok(*x),
+            _ => Err(())
+        } 
+    }
+}
+
+
+impl TryFrom<Value> for u64 {
+    type Error = ();
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Uint64(x) => Ok(x),
+            _ => Err(())
+        } 
+    }
+}
+
+impl TryFrom<&Value> for u64 {
+    type Error = ();
+
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Uint64(x) => Ok(*x),
+            _ => Err(())
+        } 
+    }
+}
+
+impl TryFrom<&Value> for f64 {
+    type Error = ();
+
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Uint64(x) => Ok(*x as f64),
+            Value::Int64(x) => Ok(*x as f64),
+            Value::Double(x) => Ok(*x),
+            _ => Err(())
+        } 
+    }
+}
+
 #[derive(Debug)]
 pub struct ContainerPosition {
     // the start of the container in the packet in bytes

@@ -25,7 +25,7 @@ pub fn process(
 
     let mut pdata = ProcessorData::new(mdb)?;
     let cbuf = ContainerBuf::new(packet);
-    let mut ctx = ProcCtx { mdb, pdata: &mut pdata, cbuf, result: ParameterValueList::new() };
+    let mut ctx = ProcCtx { mdb, pdata: &mut pdata, cbuf, result: ParameterValueList::new(), pidx: None };
     extract_container(&mut ctx, container)?;
 
     Ok(ctx.result)
@@ -95,7 +95,7 @@ fn extract_container(ctx: &mut ProcCtx, container: &SequenceContainer) -> Result
             }
         }
     }
-
+ 
     Ok(())
 }
 
@@ -111,10 +111,11 @@ fn extract_entry<'a, 'b>(entry: &'a ContainerEntryData, ctx: &mut ProcCtx) -> Re
 }
 
 fn extract_parameter(pidx: ParameterIdx, ctx: &mut ProcCtx) -> Result<(), MdbError> {
+    ctx.pidx.replace(pidx);
     let mdb = ctx.mdb();
     let param = mdb.get_parameter(pidx);
 
-    let ptype_idx = param.ptype.ok_or(MdbError::NoDataTypeAvailable(format!(
+    let ptype_idx = param.ptype.ok_or_else(|| MdbError::NoDataTypeAvailable(format!(
         "No data type available for parameter {}",
         mdb.name2str(param.name())
     )))?;
@@ -126,6 +127,7 @@ fn extract_parameter(pidx: ParameterIdx, ctx: &mut ProcCtx) -> Result<(), MdbErr
     let pv = ParameterValue { pidx, raw_value, eng_value };
 
     ctx.result.push(pv);
+    ctx.pidx.take();
 
     Ok(())
 }

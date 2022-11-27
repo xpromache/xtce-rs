@@ -162,6 +162,44 @@ impl BitBuffer<'_> {
 
         r
     }
+
+    pub fn get_byte(&mut self) -> u8 {
+        self.ensure_byte_boundary();
+        let r = self.b[self.position/8];
+        self.position += 8;
+        r
+    }
+
+    /// copy from the buffer into slice b
+    /// panics if there is not enough data in the buffer
+    pub fn get_bytes(&mut self, mut b: &mut [u8]) {
+        self.ensure_byte_boundary();
+        let pos = self.position;
+
+        b.clone_from_slice(&self.b[pos..pos + b.len()]);
+        self.position = pos + b.len();
+    }
+
+    /// gets a reference to a slice inside the buffer
+    /// advances the position
+    /// panics if there is not enough data in the buffer
+    pub fn get_bytes_ref(&mut self, len: usize) -> &[u8] {
+        let pos = self.position/8;
+        self.position =  self.position + 8*len;
+        &self.b[pos..pos + len]
+    }
+
+    pub fn remaining_bytes(&self) -> usize {
+        self.ensure_byte_boundary();
+
+        return self.b.len() - (self.position >> 3);
+    }
+
+    fn ensure_byte_boundary(&self) {
+        if self.position & 0x7 != 0 {
+            panic!("bit position not at byte boundary");
+        }
+    }
 }
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -204,6 +242,15 @@ mod tests {
         bitbuf.set_position(0);
 
         assert_eq!(0x187A23FF, bitbuf.get_bits(32));
+    }
+    #[test]
+    fn test_bytes() {
+        let b = vec![0x18, 0x7A, 0x23, 0xFF];
+        let mut bitbuf = BitBuffer::wrap(&b);
+
+        assert_eq!(0x18, bitbuf.get_byte());
+        assert_eq!([0x7A, 0x23, 0xFF], bitbuf.get_bytes_ref(3));
+
     }
 
     #[test]

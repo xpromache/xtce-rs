@@ -18,3 +18,5 @@ rand = {version = "0.8", features = ["small_rng"]}
 lasso = {version = "0.6", features = ["multi-threaded"]}
 smallvec = {version = "1.10", features = ["union"]}
 
+[profile.release]
+debug = 1

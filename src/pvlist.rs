@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
 };
 
-use crate::{mdb::ParameterIdx, value::ParameterValue};
+use crate::{mdb::ParameterIdx, value::{ParameterValue, Value}};
 
 struct Entry {
     //the index of the previous entry for the same parameter
@@ -42,6 +42,14 @@ impl ParameterValueList {
     pub fn len(&self) -> usize {
         self.entries.len()
     }
+
+    pub fn eng(&self, idx: usize) -> &Value {
+        &self.entries[idx].pv.eng_value
+    }
+    pub fn raw(&self, idx: usize) -> &Value {
+        &self.entries[idx].pv.raw_value
+    }
+
 }
 
 /// this is to allow to do "for pv in pvlist"
@@ -84,3 +92,12 @@ impl<'a> Iterator for IntoIterRef<'a> {
         self.0.next().map(|e| &e.pv)
     }
 }
+
+impl std::ops::Index<usize> for ParameterValueList {
+    type Output = ParameterValue;
+
+    fn index(&self, idx: usize) -> &Self::Output {
+        &self.entries[idx].pv
+    }
+}
+

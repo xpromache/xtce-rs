@@ -173,7 +173,7 @@ impl NameTree {
         None
     }
 
-   fn qn(&self, qnstr: &str) -> QualifiedName {
+   pub fn qn(&self, qnstr: &str) -> QualifiedName {
         let mut r = QualifiedName::empty();
         for p in qnstr.split("/") {
             if !p.is_empty() {

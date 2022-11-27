@@ -1,0 +1,429 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="xtce_template.xsl"?>
+<!--
+	This file contains several examples on how to use Yamcs with XTCE.
+	There are a few extensions which make the file incompatible with the XTCE 1.2 schema.
+	They are documented as such.
+-->
+<xtce:SpaceSystem name="RefXtce" xmlns:xtce="http://www.omg.org/spec/XTCE/20180204" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.omg.org/spec/XTCE/20180204 https://www.omg.org/spec/XTCE/20180204/SpaceSystem.xsd" shortDescription="Testing Yamcs XTCE processing" operationalStatus="unittest">
+
+	<xtce:TelemetryMetaData>
+		<xtce:ParameterTypeSet>
+			<xtce:IntegerParameterType signed="false" name="uint16">
+				<xtce:IntegerDataEncoding encoding="unsigned" sizeInBits="16" />
+			</xtce:IntegerParameterType>
+
+			<xtce:IntegerParameterType signed="false" name="int_encoded_as_string">
+				<xtce:StringDataEncoding>
+					<xtce:SizeInBits>
+						<xtce:Fixed>
+							<xtce:FixedValue>48</xtce:FixedValue>
+						</xtce:Fixed>
+						<xtce:TerminationChar>00</xtce:TerminationChar>
+					</xtce:SizeInBits>
+				</xtce:StringDataEncoding>
+			</xtce:IntegerParameterType>
+			<xtce:FloatParameterType name="float_encoded_as_string">
+				<xtce:StringDataEncoding>
+					<xtce:SizeInBits>
+						<xtce:Fixed>
+							<xtce:FixedValue>48</xtce:FixedValue>
+						</xtce:Fixed>
+						<xtce:TerminationChar>00</xtce:TerminationChar>
+					</xtce:SizeInBits>
+				</xtce:StringDataEncoding>
+			</xtce:FloatParameterType>
+
+			<xtce:FloatParameterType sizeInBits="32" name="float32">
+				<xtce:FloatDataEncoding encoding="IEEE754_1985" sizeInBits="32" />
+			</xtce:FloatParameterType>
+			<xtce:BinaryParameterType name="binary_param_type">
+				<xtce:BinaryDataEncoding>
+					<xtce:SizeInBits>
+						<!-- -1 means the algorithm will find the size -->
+						<xtce:FixedValue>-1</xtce:FixedValue>
+					</xtce:SizeInBits>
+					<xtce:FromBinaryTransformAlgorithm name="LeadingSizeBinaryDecoder" shortDescription="decodes byte arrays whith the size specified at the beginning">
+						<!-- the 8 passed to the constructor means the size is encoded on 8 bits -->
+						<xtce:AlgorithmText language="java">
+       	   		    		org.yamcs.algo.LeadingSizeBinaryDecoder(8)
+       	   	   			</xtce:AlgorithmText>
+					</xtce:FromBinaryTransformAlgorithm>
+				</xtce:BinaryDataEncoding>
+			</xtce:BinaryParameterType>
+			<xtce:AggregateParameterType name="aggregate_param_type1">
+				<xtce:MemberList>
+					<xtce:Member name="m1" typeRef="float32" />
+					<xtce:Member name="m2" typeRef="uint16" />
+				</xtce:MemberList>
+			</xtce:AggregateParameterType>
+			<xtce:ArrayParameterType name="array_param_type" arrayTypeRef="uint16">
+				<xtce:DimensionList>
+					<xtce:Dimension>
+						<xtce:StartingIndex>
+							<xtce:FixedValue>0</xtce:FixedValue>
+						</xtce:StartingIndex>
+						<xtce:EndingIndex>
+							<xtce:FixedValue>3</xtce:FixedValue>
+						</xtce:EndingIndex>
+					</xtce:Dimension>
+				</xtce:DimensionList>
+			</xtce:ArrayParameterType>
+		</xtce:ParameterTypeSet>
+		<xtce:ParameterSet>
+			<xtce:Parameter name="param1" parameterTypeRef="binary_param_type" />
+			<xtce:Parameter name="param2" parameterTypeRef="aggregate_param_type1" />
+			<xtce:Parameter name="param3" parameterTypeRef="float32" />
+			<xtce:Parameter name="param4" parameterTypeRef="float32" />
+			<xtce:Parameter name="param5" parameterTypeRef="float32" initialValue="3.14" />
+			<xtce:Parameter name="param6" parameterTypeRef="float32" />
+			<xtce:Parameter name="param7" parameterTypeRef="float32" />
+			<xtce:Parameter name="param9" parameterTypeRef="int_encoded_as_string" />
+			<xtce:Parameter name="param10" parameterTypeRef="float_encoded_as_string" />
+			<xtce:Parameter name="avg4_result" parameterTypeRef="float32" />
+			<xtce:Parameter name="param8" parameterTypeRef="array_param_type" />
+			<xtce:Parameter name="uint16_param1" parameterTypeRef="uint16" />
+			<xtce:Parameter name="uint16_param2" parameterTypeRef="uint16" />
+			<xtce:Parameter name="local_para1" parameterTypeRef="uint16">
+				<xtce:ParameterProperties dataSource="local" />
+			</xtce:Parameter>
+			<xtce:Parameter name="local_para2" parameterTypeRef="uint16">
+				<xtce:ParameterProperties dataSource="local" />
+			</xtce:Parameter>
+		</xtce:ParameterSet>
+		<xtce:ContainerSet>
+			<xtce:SequenceContainer name="packet1">
+				<xtce:EntryList>
+					<xtce:ParameterRefEntry parameterRef="param1" />
+				</xtce:EntryList>
+			</xtce:SequenceContainer>
+
+			<xtce:SequenceContainer name="packet2">
+				<xtce:EntryList>
+					<xtce:ParameterRefEntry parameterRef="param2" />
+				</xtce:EntryList>
+			</xtce:SequenceContainer>
+
+			<xtce:SequenceContainer name="packet3">
+				<xtce:EntryList>
+					<xtce:ParameterRefEntry parameterRef="param8" />
+				</xtce:EntryList>
+			</xtce:SequenceContainer>
+
+			<xtce:SequenceContainer name="packet4">
+				<xtce:EntryList>
+					<xtce:ParameterRefEntry parameterRef="param9" />
+					<xtce:ParameterRefEntry parameterRef="param10" />
+				</xtce:EntryList>
+			</xtce:SequenceContainer>
+		</xtce:ContainerSet>
+
+		<xtce:AlgorithmSet>
+			<xtce:MathAlgorithm name="avg1">
+				<xtce:MathOperation outputParameterRef="param3">
+					<xtce:ParameterInstanceRefOperand parameterRef="param2/m1" />
+					<xtce:ParameterInstanceRefOperand parameterRef="param2/m2" />
+					<xtce:Operator>+</xtce:Operator>
+					<xtce:ValueOperand>2</xtce:ValueOperand>
+					<xtce:Operator>/</xtce:Operator>
+					<xtce:TriggerSet>
+						<xtce:OnParameterUpdateTrigger parameterRef="param2" />
+					</xtce:TriggerSet>
+				</xtce:MathOperation>
+			</xtce:MathAlgorithm>
+			<xtce:CustomAlgorithm name="avg2">
+				<xtce:AlgorithmText language="JavaScript">
+                    avg.value = (m1.value+m2.value)/2
+                </xtce:AlgorithmText>
+				<xtce:InputSet>
+					<xtce:InputParameterInstanceRef parameterRef="param2/m1" inputName="m1" />
+					<xtce:InputParameterInstanceRef parameterRef="param2/m2" inputName="m2" />
+				</xtce:InputSet>
+				<xtce:OutputSet>
+					<xtce:OutputParameterRef parameterRef="param4" outputName="avg" />
+				</xtce:OutputSet>
+			</xtce:CustomAlgorithm>
+			<xtce:CustomAlgorithm name="avg3">
+				<xtce:AlgorithmText language="Java">
+                    org.yamcs.algorithms.RefXtceAlgorithmTest$AvgAlgorithm() 
+                </xtce:AlgorithmText>
+				<xtce:InputSet>
+					<xtce:InputParameterInstanceRef parameterRef="param2" />
+				</xtce:InputSet>
+				<xtce:OutputSet>
+					<xtce:OutputParameterRef parameterRef="param7" outputName="avg" />
+				</xtce:OutputSet>
+			</xtce:CustomAlgorithm>
+			<xtce:CustomAlgorithm name="avg4">
+				<xtce:AlgorithmText language="java-expression">
+                    float m1v = m1.getEngValue().getFloatValue();
+                    float m2v = m2.getEngValue().getUint32Value();
+                    avg.setFloatValue((m1v + m2v) / 2);
+                </xtce:AlgorithmText>
+				<xtce:InputSet>
+					<xtce:InputParameterInstanceRef parameterRef="param2/m1" inputName="m1" />
+					<xtce:InputParameterInstanceRef parameterRef="param2/m2" inputName="m2" />
+				</xtce:InputSet>
+				<xtce:OutputSet>
+					<xtce:OutputParameterRef parameterRef="avg4_result" outputName="avg" />
+				</xtce:OutputSet>
+			</xtce:CustomAlgorithm>
+			<xtce:MathAlgorithm name="copy_param5_into_param6">
+				<!-- The param5 has an initial value and this algorithm is copying it to param6 -->
+				<xtce:MathOperation outputParameterRef="param6">
+					<xtce:ParameterInstanceRefOperand parameterRef="param5" />
+					<xtce:TriggerSet>
+						<!-- we use this as a trigger to control it easier from unit tests -->
+						<xtce:OnParameterUpdateTrigger parameterRef="param2" />
+					</xtce:TriggerSet>
+				</xtce:MathOperation>
+			</xtce:MathAlgorithm>
+		</xtce:AlgorithmSet>
+	</xtce:TelemetryMetaData>
+	<xtce:CommandMetaData>
+		<xtce:ArgumentTypeSet>
+			<xtce:AbsoluteTimeArgumentType name="gps_time_type">
+				<xtce:Encoding>
+					<xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" />
+				</xtce:Encoding>
+				<xtce:ReferenceTime>
+					<xtce:Epoch>GPS</xtce:Epoch>
+				</xtce:ReferenceTime>
+			</xtce:AbsoluteTimeArgumentType>
+			<xtce:AbsoluteTimeArgumentType name="unix_time_type">
+				<xtce:Encoding>
+					<xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" />
+				</xtce:Encoding>
+				<xtce:ReferenceTime>
+					<xtce:Epoch>UNIX</xtce:Epoch>
+				</xtce:ReferenceTime>
+			</xtce:AbsoluteTimeArgumentType>
+
+			<xtce:AggregateArgumentType name="aggr_arg_type1">
+				<xtce:MemberList>
+					<xtce:Member name="m1" typeRef="u32" />
+					<xtce:Member name="m2" typeRef="f64limit100"/>
+				</xtce:MemberList>
+			</xtce:AggregateArgumentType>
+			<xtce:AggregateArgumentType name="aggr_arg_with_initial_values">
+				<xtce:MemberList>
+					<xtce:Member name="m1" typeRef="u32" initialValue="7"/>
+					<xtce:Member name="m2" typeRef="f64limit100" initialValue="3.14"/>
+				</xtce:MemberList>
+			</xtce:AggregateArgumentType>
+			<xtce:IntegerArgumentType name="u32" signed="false">
+				<xtce:UnitSet />
+				<xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" />
+			</xtce:IntegerArgumentType>
+			<xtce:FloatArgumentType name="f64limit100">
+				<xtce:UnitSet />
+				<xtce:FloatDataEncoding sizeInBits="64" />
+				<xtce:ValidRangeSet>
+					<xtce:ValidRange maxInclusive="100" />
+				</xtce:ValidRangeSet>
+			</xtce:FloatArgumentType>
+			<xtce:BinaryArgumentType name="barray">
+				<xtce:AncillaryDataSet>
+					<xtce:AncillaryData name="Yamcs">minLength=2</xtce:AncillaryData>
+					<xtce:AncillaryData name="Yamcs">maxLength=10</xtce:AncillaryData>
+				</xtce:AncillaryDataSet>
+				<xtce:BinaryDataEncoding>
+					<!--  this SizInBits section is superfluous and can be removed -->
+					<xtce:SizeInBits>
+						<xtce:DynamicValue>
+							<xtce:ParameterInstanceRef parameterRef="_yamcs_ignore" />
+						</xtce:DynamicValue>
+					</xtce:SizeInBits>
+					<xtce:ToBinaryTransformAlgorithm name="LeadingSizeBinaryEncoder" shortDescription="encodes byte arrays whith the size specified at the beginning">
+						<!-- the 16 passed to the constructor means the size is encoded on 16 bits -->
+						<xtce:AlgorithmText language="java">
+       	   		    		org.yamcs.algo.LeadingSizeBinaryEncoder(16)
+       	   	   			</xtce:AlgorithmText>
+					</xtce:ToBinaryTransformAlgorithm>
+				</xtce:BinaryDataEncoding>
+			</xtce:BinaryArgumentType>
+		</xtce:ArgumentTypeSet>
+		<xtce:MetaCommandSet>
+			<xtce:MetaCommand name="command1">
+				<xtce:ArgumentList>
+					<xtce:Argument name="t1" argumentTypeRef="gps_time_type" />
+					<xtce:Argument name="t2" argumentTypeRef="unix_time_type" />
+				</xtce:ArgumentList>
+				<xtce:CommandContainer name="command1_Container">
+					<xtce:EntryList>
+						<xtce:ArgumentRefEntry argumentRef="t1" />
+						<xtce:ArgumentRefEntry argumentRef="t2" />
+					</xtce:EntryList>
+				</xtce:CommandContainer>
+			</xtce:MetaCommand>
+			<xtce:MetaCommand name="command2">
+				<xtce:ArgumentList>
+					<xtce:Argument name="arg1" argumentTypeRef="aggr_arg_type1" />
+				</xtce:ArgumentList>
+				<xtce:CommandContainer name="test_cmd_arg">
+					<xtce:EntryList>
+						<xtce:ArgumentRefEntry argumentRef="arg1" />
+					</xtce:EntryList>
+				</xtce:CommandContainer>
+			</xtce:MetaCommand>
+			<xtce:MetaCommand name="command3">
+				<xtce:ArgumentList>
+					<xtce:Argument name="arg1" argumentTypeRef="barray" />
+				</xtce:ArgumentList>
+				<xtce:CommandContainer name="command3">
+					<xtce:EntryList>
+						<xtce:ArgumentRefEntry argumentRef="arg1" />
+					</xtce:EntryList>
+				</xtce:CommandContainer>
+			</xtce:MetaCommand>
+			<xtce:MetaCommand name="command4">
+				<xtce:ArgumentList>
+					<xtce:Argument name="arg1" argumentTypeRef="aggr_arg_with_initial_values" />
+				</xtce:ArgumentList>
+				<xtce:CommandContainer name="command4">
+					<xtce:EntryList>
+						<xtce:ArgumentRefEntry argumentRef="arg1" />
+					</xtce:EntryList>
+				</xtce:CommandContainer>
+			</xtce:MetaCommand>
+			<xtce:MetaCommand name="vital_command">
+				<xtce:ArgumentList>
+					<xtce:Argument name="arg1" argumentTypeRef="u32" />
+				</xtce:ArgumentList>
+				<xtce:CommandContainer name="vital_command">
+					<xtce:EntryList>
+						<xtce:ArgumentRefEntry argumentRef="arg1" />
+					</xtce:EntryList>
+				</xtce:CommandContainer>
+				<xtce:DefaultSignificance reasonForWarning="no particular reason" consequenceLevel="vital" />
+			</xtce:MetaCommand>
+
+			<xtce:MetaCommand name="cmd_with_constraint1">
+				<xtce:ArgumentList>
+					<xtce:Argument name="arg1" argumentTypeRef="u32" />
+				</xtce:ArgumentList>
+				<xtce:CommandContainer name="cmd_with_constraint1">
+					<xtce:EntryList>
+						<xtce:ArgumentRefEntry argumentRef="arg1" />
+					</xtce:EntryList>
+				</xtce:CommandContainer>
+				<xtce:TransmissionConstraintList>
+					<xtce:TransmissionConstraint timeOut="PT1.234S">
+						<xtce:ComparisonList>
+							<xtce:Comparison value="42" parameterRef="local_para1" />
+						</xtce:ComparisonList>
+					</xtce:TransmissionConstraint>
+				</xtce:TransmissionConstraintList>
+			</xtce:MetaCommand>
+			<xtce:MetaCommand name="cmd_with_constraint2">
+				<xtce:ArgumentList>
+					<xtce:Argument name="arg1" argumentTypeRef="u32" />
+				</xtce:ArgumentList>
+				<xtce:CommandContainer name="cmd_with_constraint2">
+					<xtce:EntryList>
+						<xtce:ArgumentRefEntry argumentRef="arg1" />
+					</xtce:EntryList>
+				</xtce:CommandContainer>
+				<xtce:TransmissionConstraintList>
+					<xtce:TransmissionConstraint timeOut="PT1S">
+						<xtce:ComparisonList>
+							<xtce:Comparison value="15" parameterRef="/yamcs/cmd/arg/arg1" />
+						</xtce:ComparisonList>
+					</xtce:TransmissionConstraint>
+				</xtce:TransmissionConstraintList>
+			</xtce:MetaCommand>
+			<xtce:MetaCommand name="cmd_with_verifier1">
+				<xtce:ArgumentList>
+					<xtce:Argument name="arg1" argumentTypeRef="u32" />
+				</xtce:ArgumentList>
+				<xtce:CommandContainer name="cmd_with_verifier1">
+					<xtce:EntryList>
+						<xtce:ArgumentRefEntry argumentRef="arg1" />
+					</xtce:EntryList>
+				</xtce:CommandContainer>
+				<xtce:VerifierSet>
+					<xtce:CompleteVerifier>
+						<xtce:Comparison value="47" parameterRef="local_para1" />
+						<xtce:CheckWindow timeToStartChecking="PT0.1S" timeToStopChecking="PT1S" />
+					</xtce:CompleteVerifier>
+				</xtce:VerifierSet>
+			</xtce:MetaCommand>
+			<xtce:MetaCommand name="cmd_with_verifier2">
+				<xtce:ArgumentList>
+					<xtce:Argument name="arg1" argumentTypeRef="u32" />
+				</xtce:ArgumentList>
+				<xtce:CommandContainer name="cmd_with_verifier2">
+					<xtce:EntryList>
+						<xtce:ArgumentRefEntry argumentRef="arg1" />
+					</xtce:EntryList>
+				</xtce:CommandContainer>
+				<xtce:VerifierSet>
+					<xtce:CompleteVerifier>
+						<xtce:ParameterValueChange>
+							<xtce:ParameterRef parameterRef="local_para1" />
+							<xtce:Change value="10" />
+						</xtce:ParameterValueChange>
+						<xtce:CheckWindow timeToStopChecking="PT1S" />
+						<!-- The value of local_para2 will be saved in the command history -->
+						<xtce:ReturnParmRef parameterRef="local_para2" />
+					</xtce:CompleteVerifier>
+				</xtce:VerifierSet>
+			</xtce:MetaCommand>
+			<xtce:MetaCommand name="cmd_with_verifier3">
+				<xtce:ArgumentList>
+					<xtce:Argument name="arg1" argumentTypeRef="u32" />
+				</xtce:ArgumentList>
+				<xtce:CommandContainer name="cmd_with_verifier3">
+					<xtce:EntryList>
+						<xtce:ArgumentRefEntry argumentRef="arg1" />
+					</xtce:EntryList>
+				</xtce:CommandContainer>
+				<xtce:VerifierSet>
+					<xtce:CompleteVerifier>
+						<xtce:BooleanExpression>
+							<xtce:Condition>
+								<!-- the special /yamcs/cmd/arg namespace means that this is the value of an command argument,
+									(including those set via command inheritance in BaseCommand -> ArgumentAssignmentList -> ArgumentAssignment)
+									The argument value is not like a parameter because it only exists in a command verifier context,
+									same command can run in parallel multiple times each with its own context (different argument values).
+
+									The condition below says that the command is verified if the local_para1 takes the same value as the arg1 argument.
+									The arg1 could be an id which uniquely identifies the command.
+								-->
+								<xtce:ParameterInstanceRef parameterRef="/yamcs/cmd/arg/arg1" />
+								<xtce:ComparisonOperator>==</xtce:ComparisonOperator>
+								<xtce:ParameterInstanceRef parameterRef="local_para1" />
+							</xtce:Condition>
+						</xtce:BooleanExpression>
+						<xtce:CheckWindow timeToStartChecking="PT0S" timeToStopChecking="PT1S" />
+					</xtce:CompleteVerifier>
+				</xtce:VerifierSet>
+			</xtce:MetaCommand>
+			<xtce:MetaCommand name="cmd_with_verifier4">
+				<xtce:ArgumentList>
+					<xtce:Argument name="arg1" argumentTypeRef="u32" />
+				</xtce:ArgumentList>
+				<xtce:CommandContainer name="cmd_with_verifier4">
+					<xtce:EntryList>
+						<xtce:ArgumentRefEntry argumentRef="arg1" />
+					</xtce:EntryList>
+				</xtce:CommandContainer>
+				<xtce:VerifierSet>
+					<xtce:CompleteVerifier>
+						<xtce:BooleanExpression>
+							<xtce:Condition>
+								<!-- This is not valid according to XTCE but we think it should be made part of the standard.
+									It achieves the same as the example above without using the false /yamcs/cmd/arg parameter reference. -->
+								<xtce:ArgumentInstanceRef argumentRef="arg1" />
+								<xtce:ComparisonOperator>==</xtce:ComparisonOperator>
+								<xtce:ParameterInstanceRef parameterRef="local_para1" />
+							</xtce:Condition>
+						</xtce:BooleanExpression>
+						<xtce:CheckWindow timeToStartChecking="PT0S" timeToStopChecking="PT1S" />
+					</xtce:CompleteVerifier>
+				</xtce:VerifierSet>
+			</xtce:MetaCommand>
+		</xtce:MetaCommandSet>
+	</xtce:CommandMetaData>
+</xtce:SpaceSystem>

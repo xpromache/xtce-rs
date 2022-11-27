@@ -4,13 +4,50 @@ use smallvec::SmallVec;
 
 use crate::{bitbuffer::ByteOrder, error::MdbError, value::Value};
 
-use super::{DataTypeIdx, IntegerValue, NameDescription, NameIdx, NamedItem, UnitType, MissionDatabase};
+use super::{
+    DataTypeIdx, DynamicValueType, IntegerValue, MissionDatabase, NameDescription, NameIdx,
+    NamedItem, UnitType,
+};
+
 
 #[derive(Debug)]
-pub struct BinaryDataEncoding {}
+pub struct DataType {
+    pub ndescr: NameDescription,
+    pub encoding: DataEncoding,
+    pub type_data: TypeData,
+    pub units: Vec<UnitType>,
+    pub calibrator: Option<Calibrator>,
+}
 
 #[derive(Debug)]
-pub struct BooleanDataEncoding {}
+pub enum TypeData {
+    Integer(IntegerDataType),
+    Float(FloatDataType),
+    String(StringDataType),
+    Binary(BinaryDataType),
+    Boolean(BooleanDataType),
+    Enumerated(EnumeratedDataType),
+    Aggregate(AggregateDataType),
+    Array(ArrayDataType),
+    AbsoluteTime(AbsoluteTimeDataType),
+}
+
+
+#[derive(Debug)]
+pub enum DataEncoding {
+    None,
+    Binary(BinaryDataEncoding),
+    Boolean(BooleanDataEncoding),
+    Float(FloatDataEncoding),
+    Integer(IntegerDataEncoding),
+    String(StringDataEncoding),
+}
+
+
+#[derive(Debug)]
+pub struct BooleanDataEncoding {
+    pub size_in_bits: BinarySize,
+}
 
 #[derive(Debug)]
 pub struct FloatDataEncoding {
@@ -40,44 +77,53 @@ pub enum FloatEncodingType {
 }
 
 #[derive(Debug)]
-pub enum StringSizeType {
-    /**
-     * fixed size has to be specified in the {@link #getSizeInBits}
-     */
-    Fixed,
-    /**
-     * Like C strings, they are terminated with a special string, usually a null character.
-     */
-    TerminationChar,
-    /**
-     * Like PASCAL strings, the size of the string is given as an integer at the start of the string. SizeTag must
-     * be an unsigned Integer
-     */
-    LeadingSize,
-    /**
-     * {@link #getFromBinaryTransformAlgorithm} will be used to decode the data
-     */
+pub enum StringSize {
+    ///
+    /// fixed size in bits    
+    Fixed(u32),
+    ///
+    /// Like C strings, they are terminated with a special string, usually a null character.
+    TerminationChar(u8),
+    ///
+    /// Like PASCAL strings, the size of the string is given as an integer at the start of the string. SizeTag must
+    /// be an unsigned Integer.
+    /// The tag size is given in bytes (not bits!)
+    LeadingSize(u32),
+    ///
+    ///  an alogirthm will be used to decode the data - not yet supported
+    ///
     Custom,
 }
 
 #[derive(Debug)]
 pub struct StringDataEncoding {
-    pub size_type: StringSizeType,
-    pub size_in_bits: u32,
-    pub size_in_bits_of_size_tag: u8,
+    pub size_in_bits: StringSize,
+    pub box_size_in_bits: StringBoxSize,
     pub encoding: String,
-    pub termination_char: u8,
+    pub max_box_size_in_bytes: Option<u32>,
 }
 
 #[derive(Debug)]
-pub enum DataEncoding {
-    None,
-    Binary(BinaryDataEncoding),
-    Boolean(BooleanDataEncoding),
-    Float(FloatDataEncoding),
-    Integer(IntegerDataEncoding),
-    String(StringDataEncoding),
+pub enum StringBoxSize {
+    Undefined,
+    Fixed(u32),
+    Dynamic(DynamicValueType),
 }
+
+
+#[derive(Debug)]
+pub struct BinaryDataEncoding {
+    pub size_in_bits: BinarySize
+}
+
+#[derive(Debug)]
+pub enum BinarySize {
+    Fixed(u32),
+    LeadingSize(u32),
+    Dynamic(DynamicValueType)
+}
+
+
 
 #[derive(Debug)]
 pub struct NumericAlarm {}
@@ -119,27 +165,6 @@ impl std::fmt::Debug for ValueEnumeration {
     }
 }
 
-#[derive(Debug)]
-pub struct DataType {
-    pub ndescr: NameDescription,
-    pub encoding: DataEncoding,
-    pub type_data: TypeData,
-    pub units: Vec<UnitType>,
-    pub calibrator: Option<Calibrator>,
-}
-
-#[derive(Debug)]
-pub enum TypeData {
-    Integer(IntegerDataType),
-    Float(FloatDataType),
-    String(StringDataType),
-    Binary(BinaryDataType),
-    Boolean(BooleanDataType),
-    Enumerated(EnumeratedDataType),
-    Aggregate(AggregateDataType),
-    Array(ArrayDataType),
-    AbsoluteTime(AbsoluteTimeDataType),
-}
 impl NamedItem for DataType {
     fn name_descr(&self) -> &NameDescription {
         &self.ndescr
@@ -216,7 +241,7 @@ fn parse_eng_enumerated(value: &str, edt: &EnumeratedDataType) -> Result<Value, 
         .iter()
         .find(|ev| ev.label == value)
         .map(|v| Value::StringValue(Box::new(v.label.clone())))
-        .ok_or(MdbError::InvalidValue(format!("Value {} not valid for type", value)))
+        .ok_or_else(|| MdbError::InvalidValue(format!("Value {} not valid for type", value)))
 }
 
 #[derive(Debug)]
@@ -243,7 +268,6 @@ pub struct IntegerDataType {
     pub default_alarm: Option<NumericAlarm>,
     pub context_alarm: Vec<NumericContextAlarm>,
 }
-
 
 #[derive(Debug)]
 pub struct StringDataType {}
@@ -295,7 +319,7 @@ pub struct PathElement {
 }
 
 impl PathElement {
-   pub fn to_string(&self, mdb: &MissionDatabase) -> String{
+    pub fn to_string(&self, mdb: &MissionDatabase) -> String {
         let mut r = String::new();
         if let Some(name) = self.name {
             r.push_str(mdb.name2str(name));

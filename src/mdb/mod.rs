@@ -22,6 +22,8 @@ pub type ParameterIdx = Index;
 pub type ContainerIdx = Index;
 pub type MatchCriteriaIdx = Index;
 
+
+
 /// The Mission Database contains all Parameters, Parameter Types, Containers, etc.
 /// Unlike the Java version, because Rust doesn't like items pointing to randomly at eachother,
 /// we have them all stored in vectors at the top of this structure.
@@ -174,8 +176,8 @@ impl Index {
         (self.0.get() - 1) as usize
     }
 
-    pub fn invalid() -> Self {
-        Self(std::num::NonZeroU32::new(u32::MAX).unwrap())
+    pub const fn invalid() -> Self {
+        Self(unsafe{std::num::NonZeroU32::new_unchecked(u32::MAX)})
     }
 }
 
@@ -373,9 +375,17 @@ pub enum IntegerValue {
 }
 
 #[derive(Debug)]
-pub struct DynamicValueType {}
+pub struct DynamicValueType {
+    pub para_ref: ParameterInstanceRef,
+    pub adjustment: Option<LinearAdjustment>,
+}
 
-
+#[derive(Debug)]
+pub struct LinearAdjustment {
+    pub slope: f64,
+    pub intercept: f64
+}
+static mut count:u64 = 0;
 
 pub struct SpaceSystem {
     pub id: SpaceSystemIdx,
@@ -561,6 +571,12 @@ impl MissionDatabase {
     }
 
     pub fn name2str(&self, idx: NameIdx) -> &str {
+        unsafe {count+=1;
+        if count == 10000 {
+            panic!("bum")
+        }
+        };
+        //panic!("bau bau");
         self.name_db.try_resolve(&idx).unwrap_or("<none>")
     }
 

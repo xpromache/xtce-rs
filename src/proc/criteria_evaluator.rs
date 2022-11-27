@@ -52,7 +52,7 @@ pub(crate) fn from_comparison(
     comp: &Comparison,
 ) -> Result<Box<dyn CriteriaEvaluator>, MdbError> {
     let param = mdb.get_parameter(comp.param_instance.pidx);
-    let ptypeidx = param.ptype.ok_or(MdbError::NoDataTypeAvailable(format!(
+    let ptypeidx = param.ptype.ok_or_else(|| MdbError::NoDataTypeAvailable(format!(
         "no type available for {}; without a type, the parameter cannot be used in a comparisoon",
         mdb.name2str(param.name())
     )))?;

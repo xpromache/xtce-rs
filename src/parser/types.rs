@@ -211,7 +211,7 @@ pub(super) fn read_string_parameter_type(
             "StringDataEncoding" => {
                 encoding = DataEncoding::String(read_string_data_encoding(
                     mdb,
-                    &ctx.path,
+                    &ctx,
                     &cnode,
                     &DataEncoding::None,
                 )?);
@@ -253,7 +253,15 @@ pub(super) fn read_binary_parameter_type(
             "StringDataEncoding" => {
                 encoding = DataEncoding::String(read_string_data_encoding(
                     mdb,
-                    &ctx.path,
+                    &ctx,
+                    &cnode,
+                    &DataEncoding::None,
+                )?);
+            }
+            "BinaryDataEncoding" => {
+                encoding = DataEncoding::Binary(read_binary_data_encoding(
+                    mdb,
+                    &ctx,
                     &cnode,
                     &DataEncoding::None,
                 )?);

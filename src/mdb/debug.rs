@@ -135,10 +135,7 @@ impl std::fmt::Debug for MissionDatabase {
 
 impl std::fmt::Debug for MdbItemDebug<'_, MatchCriteria> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-       let mdb  = self.mdb;
-      
-       
-       Ok(())
+       todo!()
     }
 }
 

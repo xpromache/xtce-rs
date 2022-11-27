@@ -1,8 +1,20 @@
 use std::str::FromStr;
 
-use super::*;
+use super::{
+    misc::{read_dynamic_value, read_integer_value},
+    *,
+};
 
-use crate::{bitbuffer::ByteOrder, mdb::{*, types::{IntegerEncodingType, DataEncoding, StringDataEncoding, FloatDataEncoding, FloatEncodingType, IntegerDataEncoding, StringSizeType}}};
+use crate::{
+    bitbuffer::ByteOrder,
+    mdb::{
+        types::{
+            DataEncoding, FloatDataEncoding, FloatEncodingType, IntegerDataEncoding,
+            IntegerEncodingType, StringBoxSize, StringDataEncoding, StringSize, BinaryDataEncoding,
+        },
+        *,
+    },
+};
 use roxmltree::Node;
 
 pub(super) fn read_integer_data_encoding(
@@ -22,20 +34,22 @@ pub(super) fn read_integer_data_encoding(
 
     let encoding = read_attribute::<IntegerEncodingType>(node, "encoding")?.unwrap_or_else(|| {
         if let DataEncoding::Integer(ide) = base_encoding {
-             ide.encoding
+            ide.encoding
         } else {
             IntegerEncodingType::Unsigned
         }
     });
 
-    
     let byte_order =
         (read_attribute::<ByteOrder>(node, "referenceLocation")?).unwrap_or(ByteOrder::BigEndian);
 
     for cnode in node.children() {
         match cnode.tag_name().name() {
             "" => {}
-            _ => log::warn!("ignoring integer data encoding unknown property '{}'", cnode.tag_name().name()),
+            _ => log::warn!(
+                "ignoring integer data encoding unknown property '{}'",
+                cnode.tag_name().name()
+            ),
         };
     }
 
@@ -85,15 +99,18 @@ pub(super) fn read_float_data_encoding(
     for cnode in node.children() {
         match cnode.tag_name().name() {
             "" => {}
-            _ => log::warn!("ignoring float data encoding unknown property '{}'", cnode.tag_name().name()),
+            _ => log::warn!(
+                "ignoring float data encoding unknown property '{}'",
+                cnode.tag_name().name()
+            ),
         };
     }
     Ok(FloatDataEncoding { size_in_bits, encoding })
 }
 
 pub(super) fn read_string_data_encoding(
-    _mdb: &MissionDatabase,
-    _path: &QualifiedName,
+    mdb: &MissionDatabase,
+    ctx: &ParseContext,
     node: &Node,
     base_encoding: &DataEncoding,
 ) -> Result<StringDataEncoding, XtceError> {
@@ -104,76 +121,134 @@ pub(super) fn read_string_data_encoding(
             "UTF-8".to_owned()
         }
     });
-    let mut size_in_bits = 0;
-    let mut termination_char = 0;
+    let mut size_in_bits = None;
 
-    for cnode in node.children() {
+    let mut max_box_size_in_bytes = None;
+    let mut box_size_in_bits = StringBoxSize::Undefined;
+
+    for cnode in children(&node) {
         match cnode.tag_name().name() {
             "SizeInBits" => {
-                for cnode1 in cnode.children() {
+                for cnode1 in children(&cnode) {
                     match cnode1.tag_name().name() {
                         "Fixed" => {
-                            for cnode2 in cnode1.children() {
+                            for cnode2 in children(&cnode1) {
                                 match cnode2.tag_name().name() {
                                     "FixedValue" => {
-                                        size_in_bits = read_mandatory_text::<u32>(&cnode2)?;
+                                        let size = read_mandatory_text::<u32>(&cnode2)?;
+                                        box_size_in_bits = StringBoxSize::Fixed(size);
+                                        size_in_bits = Some(StringSize::Fixed(size));
                                     }
-                                    "" => {}
                                     _ => {
-                                        return Err(get_parse_error(
-                                            format!(
-                                                "unsupported Fixed size type {}",
-                                                cnode2.tag_name().name()
-                                            ),
-                                            &cnode2,
-                                        )
-                                        .into());
+                                        return Err(unsupported("size type", &cnode2));
                                     }
                                 }
                             }
                         }
                         "TerminationChar" => {
-                            let hexv = read_mandatory_text::<String>(&cnode1)?;
-                            let v = hex::decode(&hexv).or_else(|_e| {
-                                return Err(get_parse_error(
-                                    format!("Cannot decode string as hex: '{}'", &hexv),
-                                    &cnode1,
-                                ));
-                            })?;
-                            if v.len() != 1 {
-                                return Err(get_parse_error(
-                                    format!("Expected hex byte (2 characters): '{}'", hexv),
-                                    &cnode1,
-                                )
-                                .into());
-                            }
-                            termination_char = v[0];
+                            size_in_bits.replace(StringSize::TerminationChar(
+                                parse_terminator_char(&cnode1)?,
+                            ));
                         }
                         "LeadingSize" => {
-                            todo!()
+                            size_in_bits.replace(StringSize::LeadingSize(
+                                parse_leading_size(&cnode1)?
+                            ));
                         }
-                        "" => {}
                         _ => {
-                            return Err(get_parse_error(
-                                format!("unsupported size type {}", cnode1.tag_name().name()),
-                                &cnode1,
-                            )
-                            .into());
+                            return Err(unsupported("size type", &cnode1));
                         }
                     }
                 }
             }
-            "" => {}
-            _ => log::warn!("ignoring string data encoding unknown property '{}'", cnode.tag_name().name()),
+            "Variable" => {
+                let msb = read_mandatory_attribute::<u32>(&cnode, "maxSizeInBits")?;
+                max_box_size_in_bytes.replace(msb / 8);
+                for cnode1 in children(&cnode) {
+                    match cnode1.tag_name().name() {
+                        "TerminationChar" => {
+                            size_in_bits.replace(StringSize::TerminationChar(
+                                parse_terminator_char(&cnode1)?,
+                            ));
+                        }
+                        "LeadingSize" => {                            
+                            size_in_bits.replace(StringSize::LeadingSize(
+                                parse_leading_size(&cnode1)?
+                            ));
+                        }
+                        "DynamicValue" => {
+                            let dv = read_dynamic_value(mdb, ctx, &cnode1, true)?;
+                            if dv.para_ref.pidx != INVALID_PARAM_IDX {
+                                box_size_in_bits = StringBoxSize::Dynamic(dv);
+                            }
+                        }
+
+                        _ => return Err(unsupported("size type", &cnode1)),
+                    }
+                }
+            }
+            _ => log::warn!(
+                "ignoring string data encoding unknown property '{}'",
+                cnode.tag_name().name()
+            ),
         };
     }
+
+    if size_in_bits.is_none() {
+        return Err(get_parse_error("Size in bits not specified", &node).into());
+    }
+
     Ok(StringDataEncoding {
-        size_type: StringSizeType::Fixed,
-        size_in_bits,
-        size_in_bits_of_size_tag: 0,
         encoding,
-        termination_char,
+        max_box_size_in_bytes,
+        size_in_bits: size_in_bits.unwrap(),
+        box_size_in_bits,
     })
+}
+
+
+
+pub(super) fn read_binary_data_encoding(
+    mdb: &MissionDatabase,
+    ctx: &ParseContext,
+    node: &Node,
+    base_encoding: &DataEncoding,
+) -> Result<BinaryDataEncoding, XtceError> {
+    for cnode in children(&node) {
+        match cnode.tag_name().name() {
+            "SizeInBits" => {
+                let iv = read_integer_value(mdb, ctx, &cnode)?;
+            }
+            _ => log::warn!("Ignorng unsupported element {} for binary data encoding", cnode.tag_name().name())
+        }
+    }
+
+    Ok(BinaryDataEncoding{})
+}
+
+
+fn parse_leading_size(node: &Node) -> Result<u32, XtceError> {
+    let v = read_attribute::<u32>(&node, "sizeInBitsOfSizeTag")?
+    .unwrap_or(16);
+
+    if v%8 !=0 {
+        Err(get_parse_error(format!("Invalid value {} for sizeInBitsOfSizeTag; only multiples of 8 are supported'", v), node))?
+    } else {
+        Ok(v/8)
+    }
+
+}
+fn parse_terminator_char(node: &Node) -> Result<u8, XtceError> {
+    let hexv = read_mandatory_text::<String>(node)?;
+    let v = hex::decode(&hexv).or_else(|_e| {
+        return Err(get_parse_error(format!("Cannot decode string as hex: '{}'", &hexv), node));
+    })?;
+    if v.len() != 1 {
+        return Err(
+            get_parse_error(format!("Expected hex byte (2 characters): '{}'", hexv), node).into()
+        );
+    }
+    Ok(v[0])
 }
 
 impl FromStr for ByteOrder {
@@ -194,13 +269,12 @@ impl FromStr for IntegerEncodingType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-                "unsigned" => Ok(IntegerEncodingType::Unsigned),
-                "signmagnitude" => Ok(IntegerEncodingType::SignMagnitude),
-                "twoscomplement" | "twoscompliment" => Ok(IntegerEncodingType::TwosComplement),
-                "onescomplement" => Ok(IntegerEncodingType::OnesComplement),
-                _ => {
-                    Err("please use one of unsigned, signMagnitude, towsComplement, onesComplement".to_owned())
-                }
+            "unsigned" => Ok(IntegerEncodingType::Unsigned),
+            "signmagnitude" => Ok(IntegerEncodingType::SignMagnitude),
+            "twoscomplement" | "twoscompliment" => Ok(IntegerEncodingType::TwosComplement),
+            "onescomplement" => Ok(IntegerEncodingType::OnesComplement),
+            _ => Err("please use one of unsigned, signMagnitude, towsComplement, onesComplement"
+                .to_owned()),
         }
     }
 }

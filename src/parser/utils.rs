@@ -1,10 +1,18 @@
 use super::*;
 
-use roxmltree::Node;
+use roxmltree::{Node, Children};
 
 pub(super) fn get_parse_error<S: AsRef<str>>(msg: S, node: &Node) -> XtceParseError {
     let pos = node.document().text_pos_at(node.range().start);
     XtceParseError { msg: msg.as_ref().to_owned(), pos }
+}
+
+pub (super) fn unsupported(what: &str, node: &Node) -> XtceError {
+    get_parse_error(format!("unsupported {} '{}'", what, node.tag_name().name()), &node).into()
+}
+
+pub (super) fn missing(what: &str, node: &Node) -> XtceError {
+    get_parse_error(format!("missing {} from {}", what, node.tag_name().name()), &node).into()
 }
 
 pub(super) fn read_mandatory_text<T: std::str::FromStr>(node: &Node) -> Result<T, XtceParseError> {
@@ -72,3 +80,10 @@ pub(super) fn read_attribute<T: std::str::FromStr>(
         Ok(Option::None)
     }
 }
+
+
+pub(super) fn children<'a>(node: &'a Node<'a, 'a>) -> std::iter::Filter<Children, fn (node: &Node) -> bool> {
+    node.children().filter(|n| !n.tag_name().name().is_empty())
+}
+
+

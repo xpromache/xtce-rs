@@ -13,6 +13,10 @@ pub enum MdbError {
     InvalidValue(String),
     #[error("out of range")]
     OutOfRange(String),
+    #[error("decoding error")]
+    DecodingError(String),
+    #[error("missing value")]
+    MissingValue(String),
 }
 
 impl From<std::num::ParseIntError> for MdbError {
