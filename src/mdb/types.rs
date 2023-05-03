@@ -2,11 +2,11 @@ use std::fmt::{self, Formatter};
 
 use smallvec::SmallVec;
 
-use crate::{bitbuffer::ByteOrder, error::MdbError, value::Value};
+use crate::{bitbuffer::ByteOrder, value::Value};
 
 use super::{
     DataTypeIdx, DynamicValueType, IntegerValue, MissionDatabase, NameDescription, NameIdx,
-    NamedItem, UnitType,
+    NamedItem, UnitType, Result, MdbError,
 };
 
 
@@ -174,7 +174,7 @@ impl NamedItem for DataType {
 impl DataType {
     /// Converts a string to a value corresponding to the given data type
     ///
-    pub fn from_str(&self, value: &str, calibrated: bool) -> Result<Value, MdbError> {
+    pub fn from_str(&self, value: &str, calibrated: bool) -> Result<Value> {
         if calibrated {
             match &self.type_data {
                 TypeData::Integer(idt) => parse_integer(value, idt.signed, idt.size_in_bits),
@@ -204,7 +204,7 @@ impl DataType {
     }
 }
 
-fn parse_integer(value: &str, signed: bool, size_in_bits: u32) -> Result<Value, MdbError> {
+fn parse_integer(value: &str, signed: bool, size_in_bits: u32) -> Result<Value> {
     let x = value.parse::<i128>()?;
     let max = if signed { (1i128 << (size_in_bits - 1)) - 1 } else { (1i128 << size_in_bits) - 1 };
     let min = if signed { -(1i128 << (size_in_bits - 1)) } else { 0 };
@@ -223,7 +223,7 @@ fn parse_integer(value: &str, signed: bool, size_in_bits: u32) -> Result<Value, 
     }
 }
 
-fn parse_eng_boolean(value: &str, bdt: &BooleanDataType) -> Result<Value, MdbError> {
+fn parse_eng_boolean(value: &str, bdt: &BooleanDataType) -> Result<Value> {
     if value == bdt.zero_string_value {
         Ok(Value::Boolean(false))
     } else if value == bdt.one_string_value {
@@ -236,7 +236,7 @@ fn parse_eng_boolean(value: &str, bdt: &BooleanDataType) -> Result<Value, MdbErr
     }
 }
 
-fn parse_eng_enumerated(value: &str, edt: &EnumeratedDataType) -> Result<Value, MdbError> {
+fn parse_eng_enumerated(value: &str, edt: &EnumeratedDataType) -> Result<Value> {
     edt.enumeration
         .iter()
         .find(|ev| ev.label == value)

@@ -8,7 +8,7 @@ use crate::{
     value::ParameterValue,
 };
 
-use super::{types, ContainerBuf, MdbError, ProcCtx, ProcessorData};
+use super::{types, ContainerBuf, ProcCtx, ProcessorData, Result, ProcError};
 
 //1GB that should be plenty enough
 const MAX_PACKET_SIZE: usize = (u32::MAX / 4) as usize;
@@ -17,7 +17,7 @@ pub fn process(
     mdb: &MissionDatabase,
     packet: &[u8],
     root_container: ContainerIdx,
-) -> Result<ParameterValueList, MdbError> {
+) -> Result<ParameterValueList> {
     if packet.len() > MAX_PACKET_SIZE {
         panic!("Packet too long. max size is {}", MAX_PACKET_SIZE)
     }
@@ -31,7 +31,7 @@ pub fn process(
     Ok(ctx.result)
 }
 
-fn extract_container(ctx: &mut ProcCtx, container: &SequenceContainer) -> Result<(), MdbError> {
+fn extract_container(ctx: &mut ProcCtx, container: &SequenceContainer) -> Result<()> {
     let mdb = ctx.mdb();
     log::debug!("Extracting container {}", mdb.name2str(container.name()));
 
@@ -56,7 +56,7 @@ fn extract_container(ctx: &mut ProcCtx, container: &SequenceContainer) -> Result
             if newpos < 0 || newpos > cbuf.bitsize() as i64 {
                 let serr = format!("Error when extracting entry from container {}. Bit position {} is outside the container (size in bits: {})",
                 ctx.mdb.name2str(container.name()), newpos, cbuf.bitsize());
-                return Err(MdbError::OutOfBounds(serr));
+                return Err(ProcError::OutOfBounds(serr));
             }
             cbuf.set_position(newpos as usize)
         }
@@ -99,7 +99,7 @@ fn extract_container(ctx: &mut ProcCtx, container: &SequenceContainer) -> Result
     Ok(())
 }
 
-fn extract_entry<'a, 'b>(entry: &'a ContainerEntryData, ctx: &mut ProcCtx) -> Result<(), MdbError> {
+fn extract_entry<'a, 'b>(entry: &'a ContainerEntryData, ctx: &mut ProcCtx) -> Result<()> {
     match *entry {
         ContainerEntryData::ParameterRef(pidx) => extract_parameter(pidx, ctx)?,
         ContainerEntryData::ContainerRef(_) => todo!(),
@@ -110,12 +110,12 @@ fn extract_entry<'a, 'b>(entry: &'a ContainerEntryData, ctx: &mut ProcCtx) -> Re
     Ok(())
 }
 
-fn extract_parameter(pidx: ParameterIdx, ctx: &mut ProcCtx) -> Result<(), MdbError> {
+fn extract_parameter(pidx: ParameterIdx, ctx: &mut ProcCtx) -> Result<()> {
     ctx.pidx.replace(pidx);
     let mdb = ctx.mdb();
     let param = mdb.get_parameter(pidx);
 
-    let ptype_idx = param.ptype.ok_or_else(|| MdbError::NoDataTypeAvailable(format!(
+    let ptype_idx = param.ptype.ok_or_else(|| ProcError::NoDataTypeAvailable(format!(
         "No data type available for parameter {}",
         mdb.name2str(param.name())
     )))?;

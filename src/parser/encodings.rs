@@ -22,7 +22,7 @@ pub(super) fn read_integer_data_encoding(
     _path: &QualifiedName,
     node: &Node,
     base_encoding: &DataEncoding,
-) -> Result<IntegerDataEncoding, XtceError> {
+) -> Result<IntegerDataEncoding> {
     //  println!("integer_data_encoding: {:?}", node);
     let size_in_bits = read_attribute::<u8>(node, "sizeInBits")?.unwrap_or_else(|| {
         if let DataEncoding::Integer(ide) = base_encoding {
@@ -61,7 +61,7 @@ pub(super) fn read_float_data_encoding(
     _path: &QualifiedName,
     node: &Node,
     base_encoding: &DataEncoding,
-) -> Result<FloatDataEncoding, XtceError> {
+) -> Result<FloatDataEncoding> {
     let size_in_bits = read_attribute::<u8>(node, "sizeInBits")?.unwrap_or_else(|| {
         if let DataEncoding::Float(fde) = base_encoding {
             fde.size_in_bits
@@ -113,7 +113,7 @@ pub(super) fn read_string_data_encoding(
     ctx: &ParseContext,
     node: &Node,
     base_encoding: &DataEncoding,
-) -> Result<StringDataEncoding, XtceError> {
+) -> Result<StringDataEncoding> {
     let encoding = read_attribute::<String>(node, "encoding")?.unwrap_or_else(|| {
         if let DataEncoding::String(sde) = base_encoding {
             sde.encoding.to_owned()
@@ -213,7 +213,7 @@ pub(super) fn read_binary_data_encoding(
     ctx: &ParseContext,
     node: &Node,
     base_encoding: &DataEncoding,
-) -> Result<BinaryDataEncoding, XtceError> {
+) -> Result<BinaryDataEncoding> {
     for cnode in children(&node) {
         match cnode.tag_name().name() {
             "SizeInBits" => {
@@ -222,12 +222,12 @@ pub(super) fn read_binary_data_encoding(
             _ => log::warn!("Ignorng unsupported element {} for binary data encoding", cnode.tag_name().name())
         }
     }
-
-    Ok(BinaryDataEncoding{})
+todo!()
+   // Ok(BinaryDataEncoding{})
 }
 
 
-fn parse_leading_size(node: &Node) -> Result<u32, XtceError> {
+fn parse_leading_size(node: &Node) -> Result<u32> {
     let v = read_attribute::<u32>(&node, "sizeInBitsOfSizeTag")?
     .unwrap_or(16);
 
@@ -238,7 +238,7 @@ fn parse_leading_size(node: &Node) -> Result<u32, XtceError> {
     }
 
 }
-fn parse_terminator_char(node: &Node) -> Result<u8, XtceError> {
+fn parse_terminator_char(node: &Node) -> Result<u8> {
     let hexv = read_mandatory_text::<String>(node)?;
     let v = hex::decode(&hexv).or_else(|_e| {
         return Err(get_parse_error(format!("Cannot decode string as hex: '{}'", &hexv), node));
@@ -252,29 +252,29 @@ fn parse_terminator_char(node: &Node) -> Result<u8, XtceError> {
 }
 
 impl FromStr for ByteOrder {
-    type Err = String;
+    type Err = XtceError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self> {
         match s {
             "mostSignificantByteFirst" => Ok(ByteOrder::BigEndian),
             "leastSignificantByteFirst" => Ok(ByteOrder::LittleEndian),
-            _ => Err("please use one of mostSignificantByteFirst or leastSignificantByteFirst"
-                .to_owned()),
+            _ => Err(XtceError::InvalidValue("please use one of mostSignificantByteFirst or leastSignificantByteFirst"
+                .to_owned())),
         }
     }
 }
 
 impl FromStr for IntegerEncodingType {
-    type Err = String;
+    type Err = XtceError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self> {
         match s.to_lowercase().as_str() {
             "unsigned" => Ok(IntegerEncodingType::Unsigned),
             "signmagnitude" => Ok(IntegerEncodingType::SignMagnitude),
             "twoscomplement" | "twoscompliment" => Ok(IntegerEncodingType::TwosComplement),
             "onescomplement" => Ok(IntegerEncodingType::OnesComplement),
-            _ => Err("please use one of unsigned, signMagnitude, towsComplement, onesComplement"
-                .to_owned()),
+            _ => Err(XtceError::InvalidValue("please use one of unsigned, signMagnitude, towsComplement, onesComplement"
+                .to_owned())),
         }
     }
 }

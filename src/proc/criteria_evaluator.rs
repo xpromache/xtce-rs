@@ -5,10 +5,10 @@ use crate::{
         debug::MdbItemDebug, utils::get_member_type, Comparison, ComparisonOperator,
         MissionDatabase, NamedItem, ParameterInstanceRef,
     },
-    value::Value,
+    value::Value, proc::ProcError
 };
 
-use super::{MdbError, ProcCtx};
+use super::{ProcCtx, Result};
 
 pub(crate) trait CriteriaEvaluator {
     fn evaluate(&self, ctx: &ProcCtx) -> MatchResult;
@@ -50,9 +50,9 @@ struct RefEqualValueEvaluator {
 pub(crate) fn from_comparison(
     mdb: &MissionDatabase,
     comp: &Comparison,
-) -> Result<Box<dyn CriteriaEvaluator>, MdbError> {
+) -> Result<Box<dyn CriteriaEvaluator>> {
     let param = mdb.get_parameter(comp.param_instance.pidx);
-    let ptypeidx = param.ptype.ok_or_else(|| MdbError::NoDataTypeAvailable(format!(
+    let ptypeidx = param.ptype.ok_or_else(|| ProcError::NoDataTypeAvailable(format!(
         "no type available for {}; without a type, the parameter cannot be used in a comparisoon",
         mdb.name2str(param.name())
     )))?;
@@ -63,7 +63,7 @@ pub(crate) fn from_comparison(
         if let Some(p) = get_member_type(mdb, ptype, path) {
             ptype = p;
         } else {
-            return Err(MdbError::InvalidMdb(format!(
+            return Err(ProcError::InvalidMdb(format!(
                 "Cannot find parameter instance {}",
                 param_instance.to_string(mdb)
             )));
@@ -87,7 +87,7 @@ pub(crate) fn from_comparison(
 pub(crate) fn from_comparison_list(
     mdb: &MissionDatabase,
     clist: &Vec<Comparison>,
-) -> Result<Box<dyn CriteriaEvaluator>, MdbError> {
+) -> Result<Box<dyn CriteriaEvaluator>> {
     let mut evlist = Vec::<Box<dyn CriteriaEvaluator>>::with_capacity(clist.len());
     for comp in clist {
         evlist.push(from_comparison(mdb, comp)?);

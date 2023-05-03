@@ -6,10 +6,7 @@ mod types;
 mod utils;
 mod misc;
 
-use std::fmt;
-
 use roxmltree::{Document, Node, NodeId, TextPos};
-use std::error;
 
 use crate::mdb::*;
 use types::*;
@@ -28,6 +25,8 @@ use self::parameters::add_parameter;
 const IGNORE_PARAM_NAME: &str = "_yamcs_ignore";
 const INVALID_PARAM_IDX: ParameterIdx = ParameterIdx::invalid();
 
+use thiserror::Error;
+
 
 #[derive(Debug)]
 pub struct XtceParseError {
@@ -35,27 +34,32 @@ pub struct XtceParseError {
     pub pos: TextPos,
 }
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum XtceError {
-    ParseError(XtceParseError),
+    #[error("IO error")]
+    Io(std::io::Error),
+    #[error("parse error")]
+    Parse(XtceParseError),
+    #[error("")]  
     DuplicateName(NameIdx, NodeId),
     /// undefined means that the item is not found in the name tree
+     #[error("undefined reference")]
     UndefinedReference(String, NameReferenceType),
     // unresolved means that the item has been found in the name tree but it is not
     // added to the MDB because either is encountered later in the file or it depends on other item which is not added
+    #[error("unresolved reference")]
     UnresolvedReference(String, NameReferenceType),
+    #[error("unresolved reference")]
     UnresolvedReferences(String),
+    #[error("invalid reference")]
     InvalidReference(String),
-    InvalidValue(String)
+    #[error("invalid value")]
+    InvalidValue(String),
+    
 }
 
-impl fmt::Display for XtceError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "An Error Occurred, Please Try Again!") // user-facing output
-    }
-}
+type Result<T> = std::result::Result<T, XtceError>;
 
-impl std::error::Error for XtceError {}
 
 #[derive(Copy, Clone)]
 struct ParseContext<'a> {
@@ -70,20 +74,28 @@ pub struct Reference {
     reference: String,
     rtype: NameReferenceType,
 }
-
+/*
 impl fmt::Display for XtceParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "An Error Occurred, Please Try Again!") // user-facing output
     }
 }
-impl std::error::Error for XtceParseError {}
+*/
+
 impl std::convert::From<XtceParseError> for XtceError {
     fn from(err: XtceParseError) -> Self {
-        XtceError::ParseError(err)
+        XtceError::Parse(err)
     }
 }
 
-pub fn parse(mdb: &mut MissionDatabase, path: &Path) -> Result<(), Box<dyn error::Error>> {
+impl std::convert::From<std::io::Error> for XtceError {
+    fn from(err: std::io::Error) -> Self {
+        XtceError::Io(err)
+    }
+}
+
+
+pub fn parse(mdb: &mut MissionDatabase, path: &Path) -> Result<()> {
     let text = std::fs::read_to_string(path)?;
     let doc = roxmltree::Document::parse(&text).unwrap();
     let root_element = doc.root_element();
@@ -102,7 +114,7 @@ pub fn parse(mdb: &mut MissionDatabase, path: &Path) -> Result<(), Box<dyn error
 }
 
 /*************** details **************/
-fn build_mdb(mdb: &mut MissionDatabase, name_tree: &NameTree, doc: &Document) -> Result<(), XtceError> {
+fn build_mdb(mdb: &mut MissionDatabase, name_tree: &NameTree, doc: &Document) -> Result<()> {
     let mut unresolved: Vec<(ParseContext, Reference)> = vec![];
 
     for (path, ssn) in &name_tree.systems {
@@ -145,7 +157,7 @@ fn add_item<'a>(
     mdb: &mut MissionDatabase,
     ctx: &ParseContext<'a>,
     unresolved: &mut Vec<(ParseContext<'a>, Reference)>,
-) -> Result<(), XtceError> {
+) -> Result<()> {
     let r = match ctx.rtype {
         NameReferenceType::ParameterType => add_parameter_type(mdb, ctx),
         NameReferenceType::Parameter => add_parameter(mdb, ctx),
@@ -165,6 +177,6 @@ fn add_item<'a>(
     }
     Ok(())
 }
-pub(super) fn read_header(_ss: &mut SpaceSystem, _node: &Node) -> Result<(), XtceParseError> {
+pub(super) fn read_header(_ss: &mut SpaceSystem, _node: &Node) -> Result<()> {
     Ok(())
 }

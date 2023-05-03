@@ -5,19 +5,18 @@ use crate::{
         types::{DataEncoding, DataType, TypeData, AggregateDataType, EnumeratedDataType},
         NameIdx, NamedItem,
     },
-    value::{AggregateValue, ContainerPosition, EnumeratedValue, Value, ContainerPositionDetails}, error::MdbError,
-};
+    value::{AggregateValue, ContainerPosition, EnumeratedValue, Value, ContainerPositionDetails}};
 
-use super::{encodings::extract_encoding, ProcCtx};
+use super::{encodings::extract_encoding, ProcCtx, Result, ProcError};
 
-pub(crate) fn extract(ptype: &DataType, ctx: &mut ProcCtx) -> Result<(Value, ContainerPosition), MdbError> {
+pub(crate) fn extract(ptype: &DataType, ctx: &mut ProcCtx) -> Result<(Value, ContainerPosition)> {
     let mdb = ctx.mdb();
     if let DataEncoding::None = ptype.encoding {
         match &ptype.type_data {
             TypeData::Aggregate(atype) => extract_aggregate(atype, ctx),
             TypeData::Array(_) => todo!(),
             _ => {
-                return Err(MdbError::InvalidMdb(format!(
+                return Err(ProcError::InvalidMdb(format!(
                     "base data type without encoding: {}",
                     mdb.name2str(ptype.name())
                 )));
@@ -32,7 +31,7 @@ pub(crate) fn extract(ptype: &DataType, ctx: &mut ProcCtx) -> Result<(Value, Con
 fn extract_aggregate(
     atype: &AggregateDataType,
     ctx: &mut ProcCtx,
-) -> Result<(Value, ContainerPosition), MdbError> {
+) -> Result<(Value, ContainerPosition)> {
     let mdb = ctx.mdb();
 
     let mut aggrm = HashMap::<NameIdx, Value>::new();
@@ -67,7 +66,7 @@ pub(crate) fn calibrate(
     rawv: &Value,
     dtype: &DataType,
     ctx: &mut ProcCtx,
-) -> Result<Value, MdbError> {
+) -> Result<Value> {
     match &rawv {
         Value::Int64(v) => from_signed_integer(*v, dtype, ctx),
         Value::Uint64(v) => from_unsigned_integer(*v, dtype, ctx),
@@ -80,7 +79,7 @@ pub(crate) fn calibrate(
     }
 }
 
-fn from_signed_integer(v: i64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value, MdbError> {
+fn from_signed_integer(v: i64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value> {
     if let Some(cal) = &dt.calibrator {
         todo!()
     }
@@ -101,7 +100,7 @@ fn from_signed_integer(v: i64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value, M
         TypeData::Enumerated(edt) => Value::Enumerated(get_enumeration(edt, v)),
         TypeData::AbsoluteTime(_) => todo!(),
         _ => {
-            return Err(MdbError::InvalidValue(format!(
+            return Err(ProcError::InvalidValue(format!(
                 "cannot convert integer to {:?}",
                 dt.type_data
             )))
@@ -112,7 +111,7 @@ fn from_signed_integer(v: i64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value, M
 }
 
 // computes the engineering value from a unsigned integer raw value
-fn from_unsigned_integer(rv: u64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value, MdbError> {
+fn from_unsigned_integer(rv: u64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value> {
     if let Some(cal) = &dt.calibrator {
         todo!()
     }
@@ -135,7 +134,7 @@ fn from_unsigned_integer(rv: u64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value
         TypeData::Enumerated(edt) => Value::Enumerated(get_enumeration(edt, rv as i64)),
         TypeData::AbsoluteTime(_) => todo!(),
         _ => {
-            return Err(MdbError::InvalidValue(format!(
+            return Err(ProcError::InvalidValue(format!(
                 "cannot convert unsigned integer to {:?}",
                 dt.type_data
             )))
@@ -150,13 +149,13 @@ fn from_aggregate(
     aggr_rv: &Box<AggregateValue>,
     dt: &DataType,
     ctx: &mut ProcCtx,
-) -> Result<Value, MdbError> {
+) -> Result<Value> {
     let mdb = ctx.mdb();
     let mut aggrm = HashMap::<NameIdx, Value>::new();
 
     if let TypeData::Aggregate(atype) = &dt.type_data {
         for m in &atype.members {
-            let member_rv = aggr_rv.0.get(&m.name()).ok_or_else(|| MdbError::InvalidValue(format!(
+            let member_rv = aggr_rv.0.get(&m.name()).ok_or_else(|| ProcError::InvalidValue(format!(
                 "Error when calibrating aggregate value for type:
             aggregate raw value does not contain value for member {}.
             Got value: {:?} )",
@@ -170,7 +169,7 @@ fn from_aggregate(
         }
     } else {
         let serr = format!("Got aggregate value for type {:?})", dt);
-        return Err(MdbError::InvalidValue(serr));
+        return Err(ProcError::InvalidValue(serr));
     }
 
     let ev = Value::Aggregate(Box::new(AggregateValue(aggrm)));
@@ -192,7 +191,7 @@ fn get_enumeration(edt: &EnumeratedDataType, rv: i64) -> Box<EnumeratedValue> {
 
 
 // computes the engineering value from a string raw value
-fn from_string(rv: &str, dt: &DataType, _ctx: &ProcCtx) -> Result<Value, MdbError> {    
+fn from_string(rv: &str, dt: &DataType, _ctx: &ProcCtx) -> Result<Value> {    
     let x = match &dt.type_data {
         TypeData::String(_) => Value::StringValue(Box::new(rv.to_owned())),
         TypeData::Integer(_) => todo!(),

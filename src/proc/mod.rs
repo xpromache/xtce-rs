@@ -1,11 +1,8 @@
-use std::fmt::Error;
-
 use crate::{
     bitbuffer::BitBuffer,
-    error::MdbError,
     mdb::{
         utils::get_member_value, DynamicValueType, MatchCriteria, MatchCriteriaIdx,
-        MissionDatabase, NamedItem, ParameterIdx, ParameterInstanceRef,
+        MissionDatabase, NamedItem, ParameterIdx, ParameterInstanceRef, MdbError,
     },
     pvlist::ParameterValueList,
     value::Value,
@@ -19,12 +16,50 @@ pub mod encodings;
 pub mod misc;
 pub mod types;
 
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum ProcError {
+    #[error("out of bounds")]
+    OutOfBounds(String),
+    #[error("no data type available")]
+    NoDataTypeAvailable(String),
+    #[error("invalid mdb")]
+    InvalidMdb(String),
+    #[error("invalid value")]
+    InvalidValue(String),
+    #[error("out of range")]
+    OutOfRange(String),
+    #[error("decoding error")]
+    DecodingError(String),
+    #[error("missing value")]
+    MissingValue(String),
+    #[error("MDB error")]
+    Mdb(MdbError),
+}
+
+type Result<T> = std::result::Result<T, ProcError>;
+
+
+impl From<std::num::ParseIntError> for ProcError {
+    fn from(e: std::num::ParseIntError) -> ProcError {
+        return ProcError::InvalidValue(format!("{}", e));
+    }
+}
+
+impl From<MdbError> for ProcError {
+    fn from(e: MdbError) -> ProcError {
+        return ProcError::Mdb(e);
+    }
+}
+
+
 pub struct ProcessorData {
     evaluators: Vec<Box<dyn CriteriaEvaluator>>,
 }
 
 impl ProcessorData {
-    pub fn new(mdb: &MissionDatabase) -> Result<ProcessorData, MdbError> {
+    pub fn new(mdb: &MissionDatabase) -> Result<ProcessorData> {
         let mut evaluators = Vec::new();
         for criteria in &mdb.match_criteria {
             evaluators.push(ProcessorData::create_evaluator(mdb, criteria)?);
@@ -39,7 +74,7 @@ impl ProcessorData {
     fn create_evaluator(
         mdb: &MissionDatabase,
         criteria: &MatchCriteria,
-    ) -> Result<Box<dyn CriteriaEvaluator>, MdbError> {
+    ) -> Result<Box<dyn CriteriaEvaluator>> {
         let res = match criteria {
             MatchCriteria::Comparison(comp) => criteria_evaluator::from_comparison(mdb, comp)?,
             MatchCriteria::ComparisonList(clist) => {
@@ -129,13 +164,13 @@ impl<'a> ProcCtx<'a, '_, '_> {
     ///
     /// returns the value of the dynamic value as a unsigned integer.
     /// returns an error if the value cannot be extracted from the current context or if it cannot be converted to u64
-    fn get_dynamic_uint_value(&self, dynpara: &DynamicValueType) -> Result<u64, MdbError> {
+    fn get_dynamic_uint_value(&self, dynpara: &DynamicValueType) -> Result<u64> {
         let para_ref = &dynpara.para_ref;
         //let para_name = self.mdb.name2str(self.mdb.get_parameter(para_ref.pidx).name());
 
         let para_name = || self.mdb.name2str(self.mdb.get_parameter(para_ref.pidx).name());
 
-        let v = self.get_param_value(para_ref).ok_or_else(|| MdbError::MissingValue(format!(
+        let v = self.get_param_value(para_ref).ok_or_else(|| ProcError::MissingValue(format!(
             "Cannot find a value for parameter {} in the current context",
             para_name()
         )))?;
@@ -143,7 +178,7 @@ impl<'a> ProcCtx<'a, '_, '_> {
         if let Some(adj) = &dynpara.adjustment {
             //linear adjusment is with f64, convert everything to f64
             let x: f64 = v.try_into().map_err(|_| {
-                MdbError::DecodingError(format!(
+                ProcError::DecodingError(format!(
                     "Cannot convert value {:?} for parameter {} to f64 (double)",
                     v,
                     para_name()
@@ -153,7 +188,7 @@ impl<'a> ProcCtx<'a, '_, '_> {
             Ok(y as u64)
         } else {
             let x: u64 = v.try_into().map_err(|_| {
-                MdbError::DecodingError(format!(
+                ProcError::DecodingError(format!(
                     "Cannot convert value {:?} for parameter {} to u64",
                     v,
                     para_name()
@@ -164,15 +199,15 @@ impl<'a> ProcCtx<'a, '_, '_> {
         }
     }
 
-    fn decoding_error(&self, msg: &str) -> MdbError {      
+    fn decoding_error(&self, msg: &str) -> ProcError {      
         if let Some(pidx) = self.pidx {
-            return MdbError::DecodingError(format!(
+            return ProcError::DecodingError(format!(
                 "Error decoding parameter {}: {}",
                 self.mdb.name2str(self.mdb.get_parameter(pidx).name()),
                 msg
             ));
         } else {
-            return MdbError::DecodingError(msg.to_owned());
+            return ProcError::DecodingError(msg.to_owned());
         }
     }
 }

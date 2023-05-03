@@ -13,7 +13,7 @@ use super::{
         children, get_parse_error, missing, read_attribute, read_mandatory_attribute,
         read_mandatory_text,
     },
-    ParseContext, XtceError, XtceParseError, IGNORE_PARAM_NAME, INVALID_PARAM_IDX,
+    ParseContext, XtceError, XtceParseError, IGNORE_PARAM_NAME, INVALID_PARAM_IDX, Result,
 };
 
 /// parses the match criteria, adds it to the mdb.match_criterias and returns the idx
@@ -21,7 +21,7 @@ pub(super) fn read_match_criteria(
     mdb: &mut MissionDatabase,
     ctx: &ParseContext,
     node: &Node,
-) -> Result<MatchCriteriaIdx, XtceError> {
+) -> Result<MatchCriteriaIdx> {
     for cnode in node.children() {
         let mc = match cnode.tag_name().name() {
             "Comparison" => MatchCriteria::Comparison(read_comparison(mdb, ctx, &cnode)?),
@@ -47,14 +47,14 @@ pub(super) fn read_match_criteria(
         return Ok(mdb.add_match_criteria(mc));
     }
 
-    Err(XtceError::ParseError(get_parse_error("No criteria specified", node)))
+    Err(get_parse_error("No criteria specified", node))
 }
 
 pub(super) fn read_comparison(
     mdb: &MissionDatabase,
     ctx: &ParseContext,
     node: &Node,
-) -> Result<Comparison, XtceError> {
+) -> Result<Comparison> {
     let value = read_mandatory_attribute::<String>(node, "value")?;
     let comparison_operator = (read_attribute::<ComparisonOperator>(node, "comparisonOperator")?)
         .unwrap_or(ComparisonOperator::Equality);
@@ -67,7 +67,7 @@ pub(super) fn read_comparison_list(
     mdb: &MissionDatabase,
     ctx: &ParseContext,
     node: &Node,
-) -> Result<Vec<Comparison>, XtceError> {
+) -> Result<Vec<Comparison>> {
     let mut r = Vec::new();
     for cnode in node.children() {
         match cnode.tag_name().name() {
@@ -87,9 +87,9 @@ pub(super) fn read_comparison_list(
 }
 
 impl FromStr for ComparisonOperator {
-    type Err = String;
+    type Err = XtceError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self> {
         match s {
             "==" => Ok(ComparisonOperator::Equality),
             "!=" => Ok(ComparisonOperator::Inequality),
@@ -97,7 +97,7 @@ impl FromStr for ComparisonOperator {
             "<=" => Ok(ComparisonOperator::SmallerOrEqualThan),
             ">" => Ok(ComparisonOperator::LargerThan),
             ">=" => Ok(ComparisonOperator::LargerOrEqualThan),
-            _ => Err("please use one of == != < <= > >=".to_owned()),
+            _ => Err(XtceError::InvalidValue("please use one of == != < <= > >=".to_owned())),
         }
     }
 }
@@ -110,7 +110,7 @@ pub(super) fn read_para_insta_ref(
     ctx: &ParseContext,
     node: &Node,
     allow_ignore: bool
-) -> Result<ParameterInstanceRef, XtceError> {
+) -> Result<ParameterInstanceRef> {
     let pref = read_mandatory_attribute::<String>(node, "parameterRef")?;
     
     let (pidx, member_path) =  if allow_ignore && pref==IGNORE_PARAM_NAME {
@@ -131,7 +131,7 @@ pub(super) fn resolve_ref(
     ctx: &ParseContext,
     name: &str,
     rtype: NameReferenceType,
-) -> Result<Index, XtceError> {
+) -> Result<Index> {
     let (qn, rname) = match ctx.name_tree.resolve_ref(name, ctx.path, rtype) {
         Some((qn, ptype_idx, _)) => (qn, ptype_idx),
         None => {
@@ -152,7 +152,7 @@ pub(super) fn resolve_para_ref(
     mdb: &MissionDatabase,
     ctx: &ParseContext,
     name: &str,
-) -> Result<(Index, Option<MemberPath>), XtceError> {
+) -> Result<(Index, Option<MemberPath>)> {
     let rtype = NameReferenceType::Parameter;
     let (qn, rname, aggr_path) = match ctx.name_tree.resolve_ref(name, ctx.path, rtype) {
         Some((qn, ptype_idx, aggr_path)) => (qn, ptype_idx, aggr_path),
@@ -173,7 +173,7 @@ pub(super) fn read_integer_value(
     _mdb: &MissionDatabase,
     _ctx: &ParseContext,
     node: &Node,
-) -> Result<IntegerValue, XtceParseError> {
+) -> Result<IntegerValue> {
     for cnode in node.children() {
         let iv = match cnode.tag_name().name() {
             "FixedValue" => IntegerValue::FixedValue(read_mandatory_text::<i64>(&cnode)?),
@@ -202,7 +202,7 @@ pub(super) fn read_dynamic_value(
     ctx: &ParseContext,
     node: &Node,
     allow_ignore: bool
-) -> Result<DynamicValueType, XtceError> {
+) -> Result<DynamicValueType> {
     let mut pref = None;
     let mut adjustment = None;
     for cnode in children(node) {

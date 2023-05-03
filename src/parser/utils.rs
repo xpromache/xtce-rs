@@ -2,9 +2,9 @@ use super::*;
 
 use roxmltree::{Node, Children};
 
-pub(super) fn get_parse_error<S: AsRef<str>>(msg: S, node: &Node) -> XtceParseError {
+pub(super) fn get_parse_error<S: AsRef<str>>(msg: S, node: &Node) -> XtceError {
     let pos = node.document().text_pos_at(node.range().start);
-    XtceParseError { msg: msg.as_ref().to_owned(), pos }
+    XtceError::Parse(XtceParseError { msg: msg.as_ref().to_owned(), pos })
 }
 
 pub (super) fn unsupported(what: &str, node: &Node) -> XtceError {
@@ -15,7 +15,7 @@ pub (super) fn missing(what: &str, node: &Node) -> XtceError {
     get_parse_error(format!("missing {} from {}", what, node.tag_name().name()), &node).into()
 }
 
-pub(super) fn read_mandatory_text<T: std::str::FromStr>(node: &Node) -> Result<T, XtceParseError> {
+pub(super) fn read_mandatory_text<T: std::str::FromStr>(node: &Node) -> Result<T> {
     let x = read_text::<T>(node)?;
     match x {
         None => Err(get_parse_error(format!("Cannot find text"), node)),
@@ -23,7 +23,7 @@ pub(super) fn read_mandatory_text<T: std::str::FromStr>(node: &Node) -> Result<T
     }
 }
 
-pub(super) fn read_text<T: std::str::FromStr>(node: &Node) -> Result<Option<T>, XtceParseError> {
+pub(super) fn read_text<T: std::str::FromStr>(node: &Node) -> Result<Option<T>> {
     if let Some(strv) = node.text() {
         match strv.parse::<T>() {
             Ok(n) => Ok(Some(n)),
@@ -37,7 +37,7 @@ pub(super) fn read_text<T: std::str::FromStr>(node: &Node) -> Result<Option<T>, 
 pub(super) fn read_mandatory_attribute<T: std::str::FromStr>(
     node: &Node,
     attr_name: &str,
-) -> Result<T, XtceParseError> {
+) -> Result<T> {
     let x = read_attribute::<T>(node, attr_name)?;
     match x {
         None => Err(get_parse_error(format!("Cannot find attribute {}", attr_name), node)),
@@ -59,7 +59,7 @@ pub(super) fn read_name_description(ctx: &ParseContext) -> NameDescription {
     nd
 }
 
-pub(super) fn read_mandatory_name<'a>(node: &'a Node) -> Result<&'a str, XtceParseError> {
+pub(super) fn read_mandatory_name<'a>(node: &'a Node) -> Result<&'a str> {
     node.attribute("name")
         .ok_or_else(|| get_parse_error("Cannot find mandatory attribute name", node))
 }
@@ -67,7 +67,7 @@ pub(super) fn read_mandatory_name<'a>(node: &'a Node) -> Result<&'a str, XtcePar
 pub(super) fn read_attribute<T: std::str::FromStr>(
     node: &Node,
     attr_name: &str,
-) -> Result<Option<T>, XtceParseError> {
+) -> Result<Option<T>> {
     if let Some(strv) = node.attribute(attr_name) {
         match strv.parse::<T>() {
             Ok(n) => Ok(Some(n)),

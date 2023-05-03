@@ -5,7 +5,7 @@ use crate::mdb::*;
 
 
 
-pub(super) fn add_parameter(mdb: &mut MissionDatabase, ctx: &ParseContext) -> Result<(), XtceError> {
+pub(super) fn add_parameter(mdb: &mut MissionDatabase, ctx: &ParseContext) -> Result<()> {
     let node = &ctx.node;
     let ptype_str = read_mandatory_attribute::<String>(node, "parameterTypeRef")?;
     let rtype = NameReferenceType::ParameterType;
@@ -29,16 +29,16 @@ pub(super) fn add_parameter(mdb: &mut MissionDatabase, ctx: &ParseContext) -> Re
 }
 
 impl FromStr for DataSource {
-    type Err = String;
+    type Err = XtceError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self> {
         match s {
             "Telemetered" => Ok(DataSource::Telemetered),
             "Derived" => Ok(DataSource::Derived),
             "Constant" => Ok(DataSource::Constant),
             "Local" => Ok(DataSource::Local),
             "System" => Ok(DataSource::System),
-            _ => Err("please use one of Telemetered, Derived, Constant, Local or System".to_owned()),
+            _ => Err(XtceError::InvalidValue("please use one of Telemetered, Derived, Constant, Local or System".to_owned())),
         }
     }
 }

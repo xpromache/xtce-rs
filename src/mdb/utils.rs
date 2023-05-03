@@ -1,10 +1,10 @@
 use smallvec::SmallVec;
 
-use crate::{error::MdbError, value::{Value}};
+use crate::{value::{Value}};
 
 use super::{
     types::{DataType, MemberPath, PathElement, TypeData},
-    MissionDatabase, NameDb, NamedItem,
+    MissionDatabase, NameDb, NamedItem, MdbError, Result,
 };
 
 ///
@@ -16,7 +16,7 @@ use super::{
 pub(crate) fn parse_aggregate_member_path(
     name_db: &NameDb,
     path: Vec<&str>,
-) -> Result<MemberPath, MdbError> {
+) -> Result<MemberPath> {
     let mut mp = Vec::with_capacity(path.len());
 
     for p in path {
@@ -31,7 +31,7 @@ pub(crate) fn parse_aggregate_member_path(
 pub(crate) fn parse_aggregate_path_element(
     name_db: &NameDb,
     path: &str,
-) -> Result<PathElement, MdbError> {
+) -> Result<PathElement> {
     let mut it = path.split("[");
 
     let mut name_str = it.next().map(|x| &x[..x.len()]);

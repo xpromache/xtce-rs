@@ -172,7 +172,7 @@ impl BitBuffer<'_> {
 
     /// copy from the buffer into slice b
     /// panics if there is not enough data in the buffer
-    pub fn get_bytes(&mut self, mut b: &mut [u8]) {
+    pub fn get_bytes(&mut self, b: &mut [u8]) {
         self.ensure_byte_boundary();
         let pos = self.position;
 

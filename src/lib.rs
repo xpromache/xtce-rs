@@ -4,10 +4,11 @@ pub mod bitbuffer;
 pub mod pvlist;
 pub mod value;
 
-pub mod error;
 pub mod mdb;
 pub mod parser;
 pub mod proc;
+
+
 
 #[cfg(test)]
 mod tests {

@@ -3,15 +3,15 @@ use crate::{
         BinaryDataEncoding, DataEncoding, IntegerDataEncoding, IntegerEncodingType, StringBoxSize,
         StringDataEncoding, StringSize,
     },
-    value::{ContainerPosition, ContainerPositionDetails, Value},
+    value::{ContainerPosition, ContainerPositionDetails, Value}, proc::ProcError
 };
 
-use super::{MdbError, ProcCtx};
+use super::{ProcCtx, Result};
 
 pub(crate) fn extract_encoding(
     encoding: &DataEncoding,
     ctx: &mut ProcCtx,
-) -> Result<(Value, ContainerPosition), MdbError> {
+) -> Result<(Value, ContainerPosition)> {
     match encoding {
         DataEncoding::Integer(ide) => extract_integer(ide, ctx),
         DataEncoding::Binary(bde) => extract_binary(bde, ctx),
@@ -25,7 +25,7 @@ pub(crate) fn extract_encoding(
 fn extract_integer(
     ide: &IntegerDataEncoding,
     ctx: &mut ProcCtx,
-) -> Result<(Value, ContainerPosition), MdbError> {
+) -> Result<(Value, ContainerPosition)> {
     let cctx = &mut ctx.cbuf;
     let bitbuf = &mut cctx.buf;
 
@@ -82,14 +82,14 @@ fn extract_integer(
 fn extract_binary(
     bde: &BinaryDataEncoding,
     ctx: &mut ProcCtx,
-) -> Result<(Value, ContainerPosition), MdbError> {
+) -> Result<(Value, ContainerPosition)> {
     todo!()
 }
 
 fn extract_string(
     sde: &StringDataEncoding,
     ctx: &mut ProcCtx,
-) -> Result<(Value, ContainerPosition), MdbError> {
+) -> Result<(Value, ContainerPosition)> {
     let position = ctx.cbuf.get_position();
     let start_offset = ctx.cbuf.start_offset;
     let bit_offset = position as u32;
@@ -138,7 +138,7 @@ fn extract_string(
         StringSize::Fixed(x) => {
             let strsize = x / 8;
             if strsize > bmr {
-                return Err(MdbError::DecodingError(format!(
+                return Err(ProcError::DecodingError(format!(
                     "the fixed size of string exceeds the box or remaining size: {}>{}",
                     strsize, bmr
                 )));

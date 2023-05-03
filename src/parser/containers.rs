@@ -151,16 +151,16 @@ fn read_location_in_container(
 
     let location_in_bits = match iv {
         IntegerValue::FixedValue(v) => i32::try_from(v).map_err(|_| {
-            XtceError::ParseError(get_parse_error(
+            get_parse_error(
                 format!("Value {}  specified for LocationInContainerInBits is out of range", v),
                 node,
-            ))
+            )
         })?,
         IntegerValue::DynamicValue(_) => {
-            return Err(XtceError::ParseError(get_parse_error(
+            return Err(get_parse_error(
                 format!("DynamicValue not supported for LocationInContainerInBits"),
                 node,
-            )))
+            ))
         }
     };
 

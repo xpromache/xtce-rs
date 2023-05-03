@@ -22,7 +22,21 @@ pub type ParameterIdx = Index;
 pub type ContainerIdx = Index;
 pub type MatchCriteriaIdx = Index;
 
+use thiserror::Error;
 
+#[derive(Error, Debug)]
+pub enum MdbError {
+    #[error("out of range")]
+    OutOfRange(String),
+    #[error("invalid value")]
+    InvalidValue(String),
+    #[error("duplicate name")]
+    DuplicateName(String),
+    #[error("invalid name")]
+    InvalidName(String),
+}
+
+type Result<T> = std::result::Result<T, MdbError>;
 
 /// The Mission Database contains all Parameters, Parameter Types, Containers, etc.
 /// Unlike the Java version, because Rust doesn't like items pointing to randomly at eachother,
@@ -45,8 +59,10 @@ pub struct MissionDatabase {
     pub containers: Vec<SequenceContainer>,
     pub match_criteria: Vec<MatchCriteria>,
 
-    //this is the reverse of the base containers relation
+    //parent to child container mapping
+    //(it is the reverse of the base containers relation)
     pub child_containers: HashMap<ContainerIdx, Vec<ContainerIdx>>,
+    pub decoder_defs: Vec<DecoderDef>,
 }
 
 pub trait NamedItem {
@@ -364,6 +380,16 @@ impl ParameterInstanceRef {
     }
 }
 
+//definition for custom data decoder
+pub struct DecoderDef {
+    //TODO: it should contain a factory function which can create data decoders
+    //e.g. LeadingSizeBinaryDecoder::new()
+    //arguments to be used to create
+    // e.g. 8 = size in bits of the size tag
+
+    //before the processing starts, the factory function will be called to instantiate decoders which will then be used during the processing
+}
+
 pub struct IndirectParameterRefEntry {}
 
 pub struct ArrayParameterRefEntry {}
@@ -423,7 +449,8 @@ impl MissionDatabase {
             parameters: Vec::new(),
             containers: Vec::new(),
             match_criteria: Vec::new(),
-            child_containers: HashMap::new()
+            child_containers: HashMap::new(),
+            decoder_defs: Vec::new()
         };
         //create the root space system - it has "" name and an empty qualified name
         let ss_idx = SpaceSystemIdx::new(0);
@@ -434,11 +461,11 @@ impl MissionDatabase {
         mdb
     }
 
-    pub fn new_space_system(&mut self, fqn: QualifiedName) -> Result<SpaceSystemIdx, String> {
+    pub fn new_space_system(&mut self, fqn: QualifiedName) -> Result<SpaceSystemIdx> {
         let ss_id = SpaceSystemIdx::new(self.space_systems.len());
 
         if self.space_systems_qn.contains_key(&fqn) {
-            return Err("A spacesystem with the given fqn already exists".to_string());
+            return Err(MdbError::DuplicateName("A spacesystem with the given fqn already exists".to_string()));
         }
 
         match fqn.name() {
@@ -448,7 +475,7 @@ impl MissionDatabase {
                 self.space_systems_qn.insert(fqn, ss_id);
                 Ok(ss_id)
             }
-            None => Err("Empty names are not allowed".to_owned()),
+            None => Err(MdbError::InvalidName("Empty names are not allowed".to_owned())),
         }
     }
 
@@ -601,5 +628,13 @@ impl MissionDatabase {
 
         let ss = self.get_space_system(&ssqn)?;
         ss.containers.get(&name).copied()
+    }
+}
+
+
+
+impl From<std::num::ParseIntError> for MdbError {
+    fn from(e: std::num::ParseIntError) -> MdbError {
+        return MdbError::InvalidValue(format!("{}", e));
     }
 }

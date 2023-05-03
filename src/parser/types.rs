@@ -16,7 +16,7 @@ use crate::mdb::{
 pub(super) fn add_parameter_type(
     mdb: &mut MissionDatabase,
     ctx: &ParseContext,
-) -> Result<(), XtceError> {
+) -> Result<()> {
     let (encoding, type_data) = match ctx.node.tag_name().name() {
         "IntegerParameterType" => read_integer_parameter_type(mdb, ctx)?,
         "FloatParameterType" => read_float_parameter_type(mdb, ctx)?,
@@ -47,7 +47,7 @@ pub(super) fn add_parameter_type(
 pub(super) fn read_integer_parameter_type(
     mdb: &MissionDatabase,
     ctx: &ParseContext,
-) -> Result<(DataEncoding, TypeData), XtceError> {
+) -> Result<(DataEncoding, TypeData)> {
     let mut encoding = DataEncoding::None;
     let signed = read_attribute::<bool>(&ctx.node, "signed")?.unwrap_or(true);
     let size_in_bits = read_attribute::<u32>(&ctx.node, "sizeInBits")?.unwrap_or(32);
@@ -78,7 +78,7 @@ pub(super) fn read_integer_parameter_type(
 pub(super) fn read_float_parameter_type(
     mdb: &MissionDatabase,
     ctx: &ParseContext,
-) -> Result<(DataEncoding, TypeData), XtceError> {
+) -> Result<(DataEncoding, TypeData)> {
     let mut encoding = DataEncoding::None;
 
     for cnode in ctx.node.children() {
@@ -100,7 +100,10 @@ pub(super) fn read_float_parameter_type(
                 )?);
             }
             "" | "LongDescription" | "UnitSet" => {}
-            _ => log::warn!("ignoring float parameter type unknown property '{}'", cnode.tag_name().name()),
+            _ => log::warn!(
+                "ignoring float parameter type unknown property '{}'",
+                cnode.tag_name().name()
+            ),
         };
     }
 
@@ -112,7 +115,7 @@ pub(super) fn read_float_parameter_type(
 pub(super) fn read_boolean_parameter_type(
     mdb: &MissionDatabase,
     ctx: &ParseContext,
-) -> Result<(DataEncoding, TypeData), XtceError> {
+) -> Result<(DataEncoding, TypeData)> {
     let node = &ctx.node;
     let osv = read_attribute::<String>(node, "oneStringValue")?.unwrap_or("True".to_owned());
     let zsv = read_attribute::<String>(node, "zeroStringValue")?.unwrap_or("False".to_owned());
@@ -138,7 +141,10 @@ pub(super) fn read_boolean_parameter_type(
                 )?);
             }
             "" | "LongDescription" | "UnitSet" => {}
-            _ => log::warn!("ignoring boolean parameter type unknown property '{}'", cnode.tag_name().name()),
+            _ => log::warn!(
+                "ignoring boolean parameter type unknown property '{}'",
+                cnode.tag_name().name()
+            ),
         };
     }
 
@@ -150,7 +156,7 @@ pub(super) fn read_boolean_parameter_type(
 pub(super) fn read_enumerated_parameter_type(
     mdb: &MissionDatabase,
     ctx: &ParseContext,
-) -> Result<(DataEncoding, TypeData), XtceError> {
+) -> Result<(DataEncoding, TypeData)> {
     let mut encoding = DataEncoding::None;
     let mut enumeration = Vec::<ValueEnumeration>::new();
 
@@ -176,7 +182,10 @@ pub(super) fn read_enumerated_parameter_type(
                 read_enumeration_list(&mut enumeration, &cnode)?;
             }
             "" | "LongDescription" | "UnitSet" => {}
-            _ => log::warn!("ignoring enumerated parameter type unknown property '{}'", cnode.tag_name().name()),
+            _ => log::warn!(
+                "ignoring enumerated parameter type unknown property '{}'",
+                cnode.tag_name().name()
+            ),
         };
     }
 
@@ -187,7 +196,7 @@ pub(super) fn read_enumerated_parameter_type(
 pub(super) fn read_string_parameter_type(
     mdb: &mut MissionDatabase,
     ctx: &ParseContext,
-) -> Result<(DataEncoding, TypeData), XtceError> {
+) -> Result<(DataEncoding, TypeData)> {
     let mut encoding = DataEncoding::None;
 
     for cnode in ctx.node.children() {
@@ -217,7 +226,10 @@ pub(super) fn read_string_parameter_type(
                 )?);
             }
             "" | "LongDescription" | "UnitSet" => {}
-            _ => log::warn!("ignoring string parameter type unknown property '{}'", cnode.tag_name().name()),
+            _ => log::warn!(
+                "ignoring string parameter type unknown property '{}'",
+                cnode.tag_name().name()
+            ),
         };
     }
 
@@ -229,7 +241,7 @@ pub(super) fn read_string_parameter_type(
 pub(super) fn read_binary_parameter_type(
     mdb: &mut MissionDatabase,
     ctx: &ParseContext,
-) -> Result<(DataEncoding, TypeData), XtceError> {
+) -> Result<(DataEncoding, TypeData)> {
     let mut encoding = DataEncoding::None;
 
     for cnode in ctx.node.children() {
@@ -267,7 +279,10 @@ pub(super) fn read_binary_parameter_type(
                 )?);
             }
             "" | "LongDescription" | "UnitSet" => {}
-            _ => log::warn!("ignoring binary parameter type unknown property '{}'", cnode.tag_name().name()),
+            _ => log::warn!(
+                "ignoring binary parameter type unknown property '{}'",
+                cnode.tag_name().name()
+            ),
         };
     }
 
@@ -280,7 +295,7 @@ pub(super) fn read_binary_parameter_type(
 pub(super) fn read_aggregate_parameter_type(
     mdb: &mut MissionDatabase,
     ctx: &ParseContext,
-) -> Result<(DataEncoding, TypeData), XtceError> {
+) -> Result<(DataEncoding, TypeData)> {
     let mut members = Vec::new();
 
     for cnode in ctx.node.children() {
@@ -310,11 +325,7 @@ pub(super) fn read_aggregate_parameter_type(
 }
 
 // reads a member of an aggregate type from the XTCE
-fn read_member(
-    mdb: &mut MissionDatabase,
-    ctx: &ParseContext,
-    node: &Node,
-) -> Result<Member, XtceError> {
+fn read_member(mdb: &mut MissionDatabase, ctx: &ParseContext, node: &Node) -> Result<Member> {
     let ptype_str = read_mandatory_attribute::<String>(node, "typeRef")?;
     let rtype = NameReferenceType::ParameterType;
 
@@ -336,7 +347,7 @@ fn read_member(
 pub(super) fn read_array_parameter_type(
     mdb: &MissionDatabase,
     ctx: &ParseContext,
-) -> Result<(DataEncoding, TypeData), XtceError> {
+) -> Result<(DataEncoding, TypeData)> {
     let ptype_str = read_mandatory_attribute::<String>(&ctx.node, "arrayTypeRef")?;
     let rtype = NameReferenceType::ParameterType;
     let dtype = resolve_ref(mdb, ctx, &ptype_str, rtype)?;
@@ -349,7 +360,7 @@ pub(super) fn read_array_parameter_type(
 pub(super) fn read_absolute_time_parameter_type(
     mdb: &MissionDatabase,
     ctx: &ParseContext,
-) -> Result<(DataEncoding, TypeData), XtceError> {
+) -> Result<(DataEncoding, TypeData)> {
     for cnode in ctx.node.children() {
         match cnode.tag_name().name() {
             "Encoding" => {
@@ -360,7 +371,10 @@ pub(super) fn read_absolute_time_parameter_type(
             }
             "" => {}
             _ => {
-                log::warn!("ignoring read_absolute_time_parameter_type '{}'", cnode.tag_name().name())
+                log::warn!(
+                    "ignoring read_absolute_time_parameter_type '{}'",
+                    cnode.tag_name().name()
+                )
             }
         };
     }
@@ -368,7 +382,7 @@ pub(super) fn read_absolute_time_parameter_type(
     Ok((DataEncoding::None, TypeData::AbsoluteTime(apt)))
 }
 
-fn read_enumeration_list(elist: &mut Vec<ValueEnumeration>, node: &Node) -> Result<(), XtceError> {
+fn read_enumeration_list(elist: &mut Vec<ValueEnumeration>, node: &Node) -> Result<()> {
     for cnode in node.children().filter(|n| !n.tag_name().name().is_empty()) {
         let value = read_mandatory_attribute::<i64>(&cnode, "value")?;
         let label = read_mandatory_attribute::<String>(&cnode, "label")?;
@@ -380,7 +394,7 @@ fn read_enumeration_list(elist: &mut Vec<ValueEnumeration>, node: &Node) -> Resu
     Ok(())
 }
 
-fn read_unit_set(node: &Node) -> Result<Vec<UnitType>, XtceError> {
+fn read_unit_set(node: &Node) -> Result<Vec<UnitType>> {
     let mut units = Vec::new();
     for pnode in node.children() {
         match pnode.tag_name().name() {
