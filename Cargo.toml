@@ -15,7 +15,7 @@ env_logger = "0.10.0"
 log = "0.4.17"
 thiserror = "1.0"
 rand = {version = "0.8", features = ["small_rng"]}
-lasso = {version = "0.6", features = ["multi-threaded"]}
+lasso = {version = "0.7", features = ["multi-threaded"]}
 smallvec = {version = "1.10", features = ["union"]}
 
 [profile.release]

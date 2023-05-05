@@ -53,6 +53,7 @@ pub struct BooleanDataEncoding {
 pub struct FloatDataEncoding {
     pub size_in_bits: u8,
     pub encoding: FloatEncodingType,
+    pub byte_order: ByteOrder,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

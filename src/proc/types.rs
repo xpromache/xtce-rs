@@ -70,7 +70,7 @@ pub(crate) fn calibrate(
     match &rawv {
         Value::Int64(v) => from_signed_integer(*v, dtype, ctx),
         Value::Uint64(v) => from_unsigned_integer(*v, dtype, ctx),
-        Value::Double(v) => todo!(),
+        Value::Double(v) => from_double(*v, dtype, ctx),
         Value::Boolean(_) => todo!(),
         Value::StringValue(v) => from_string(v, dtype, ctx),
         Value::Binary(v) => todo!(),
@@ -144,6 +144,38 @@ fn from_unsigned_integer(rv: u64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value
     Ok(x)
 }
 
+
+
+// computes the engineering value from a double value
+fn from_double(rv: f64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value> {
+    if let Some(cal) = &dt.calibrator {
+        todo!()
+    }
+    
+    let x = match &dt.type_data {
+        TypeData::Integer(idt) => {
+            let bitsize = idt.size_in_bits as usize;
+            if idt.signed {                                   
+                Value::int_value(bitsize, rv as i64)                
+            } else {
+                Value::uint_value(bitsize, rv as u64)
+            }
+        }
+        TypeData::Float(_) => Value::Double(rv),
+        TypeData::String(_) => Value::StringValue(Box::new(rv.to_string())),
+        TypeData::Boolean(_) => Value::Boolean(rv != 0.0),
+        TypeData::Enumerated(edt) => Value::Enumerated(get_enumeration(edt, rv as i64)),
+        TypeData::AbsoluteTime(_) => todo!(),
+        _ => {
+            return Err(ProcError::InvalidValue(format!(
+                "cannot convert unsigned integer to {:?}",
+                dt.type_data
+            )))
+        }
+    };
+
+    Ok(x)
+}
 // computes an aggregate engineering value from an aggregate raw value
 fn from_aggregate(
     aggr_rv: &Box<AggregateValue>,

@@ -85,7 +85,7 @@ impl std::fmt::Display for Value {
             Value::StringValue(x) => write!(f, "{}", x),
             Value::Enumerated(x) => todo!(),
             Value::Binary(x) => todo!(),
-            Value::Aggregate(x) => todo!(),
+            Value::Aggregate(x) => write!(f, "{:?}", x),
         }        
     }
 }

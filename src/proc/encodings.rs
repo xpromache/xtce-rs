@@ -1,13 +1,16 @@
+use core::num;
+
 use crate::{
     mdb::types::{
         BinaryDataEncoding, DataEncoding, IntegerDataEncoding, IntegerEncodingType, StringBoxSize,
-        StringDataEncoding, StringSize,
+        StringDataEncoding, StringSize, FloatDataEncoding, FloatEncodingType,
     },
     value::{ContainerPosition, ContainerPositionDetails, Value}, proc::ProcError
 };
 
 use super::{ProcCtx, Result};
 
+/// Extracts the raw value from the packet using the given encoding
 pub(crate) fn extract_encoding(
     encoding: &DataEncoding,
     ctx: &mut ProcCtx,
@@ -16,7 +19,7 @@ pub(crate) fn extract_encoding(
         DataEncoding::Integer(ide) => extract_integer(ide, ctx),
         DataEncoding::Binary(bde) => extract_binary(bde, ctx),
         DataEncoding::Boolean(bde) => todo!(),
-        DataEncoding::Float(fde) => todo!(),
+        DataEncoding::Float(fde) => extract_float(fde, ctx),
         DataEncoding::String(sde) => extract_string(sde, ctx),
         DataEncoding::None => panic!("shouldn't be here"),
     }
@@ -35,7 +38,7 @@ fn extract_integer(
 
     let start_offset = cctx.start_offset;
 
-    let mut bv = bitbuf.get_bits(numbits);
+    let bv = bitbuf.get_bits(numbits);
 
     let v = match ide.encoding {
         IntegerEncodingType::Unsigned => Value::uint_value(numbits, bv),
@@ -207,4 +210,47 @@ fn extract_string(
         details: ContainerPositionDetails::None,
     };
     Ok((Value::StringValue(Box::new(v)), cp))
+}
+
+fn extract_float(
+    fde: &FloatDataEncoding,
+    ctx: &mut ProcCtx,
+) -> Result<(Value, ContainerPosition)> {
+    let cctx = &mut ctx.cbuf;
+    let bitbuf = &mut cctx.buf;
+
+    bitbuf.set_byte_order(fde.byte_order);
+    let numbits = fde.size_in_bits as usize;
+    let bit_offset = bitbuf.get_position() as u32;
+
+    let start_offset = cctx.start_offset;
+
+    let bv = bitbuf.get_bits(numbits);
+
+    let v = match fde.encoding {
+
+        FloatEncodingType::IEEE754_1985 => {
+            if numbits==32 {
+                Value::Double(f32::from_bits(bv as u32) as f64) 
+            } else {
+                Value::Double(f64::from_bits(bv))
+            }
+            
+        },
+        FloatEncodingType::Milstd1750a => {
+            let n = 64 - numbits;
+            // shift left to get the sign and back again
+            let x = bv as i64;
+            Value::int_value(numbits, (x << n) >> n)
+        }       
+    };
+    Ok((
+        v,
+        ContainerPosition {
+            start_offset,
+            bit_offset,
+            bit_size: numbits as u32,
+            details: ContainerPositionDetails::None,
+        },
+    ))
 }

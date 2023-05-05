@@ -41,7 +41,7 @@ pub(super) fn read_integer_data_encoding(
     });
 
     let byte_order =
-        (read_attribute::<ByteOrder>(node, "referenceLocation")?).unwrap_or(ByteOrder::BigEndian);
+        (read_attribute::<ByteOrder>(node, "byteOrder")?).unwrap_or(ByteOrder::BigEndian);
 
     for cnode in node.children() {
         match cnode.tag_name().name() {
@@ -96,6 +96,9 @@ pub(super) fn read_float_data_encoding(
         encoding = FloatEncodingType::IEEE754_1985;
     }
 
+    let byte_order =
+    (read_attribute::<ByteOrder>(node, "byteOrder")?).unwrap_or(ByteOrder::BigEndian);
+
     for cnode in node.children() {
         match cnode.tag_name().name() {
             "" => {}
@@ -105,7 +108,7 @@ pub(super) fn read_float_data_encoding(
             ),
         };
     }
-    Ok(FloatDataEncoding { size_in_bits, encoding })
+    Ok(FloatDataEncoding { size_in_bits, encoding, byte_order })
 }
 
 pub(super) fn read_string_data_encoding(
