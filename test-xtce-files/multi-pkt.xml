@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="xtce_template.xsl"?>
+<xtce:SpaceSystem name="multi-pkt" 
+    xmlns:xtce="http://www.omg.org/spec/XTCE/20180204" 
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.omg.org/spec/XTCE/20180204 https://www.omg.org/spec/XTCE/20180204/SpaceSystem.xsd" 
+    shortDescription="Testing xtce-rs processing" 
+    operationalStatus="unittest">
+
+	<xtce:TelemetryMetaData>
+		<xtce:ParameterSet>
+			<xtce:Parameter name="param1-signed16" parameterTypeRef="/base-dt/int16_t" />
+		</xtce:ParameterSet>
+		<xtce:ContainerSet>
+			<xtce:SequenceContainer name="packet-signedint">
+				<xtce:EntryList>
+					<xtce:ParameterRefEntry parameterRef="param1-signed16" />
+				</xtce:EntryList>
+			</xtce:SequenceContainer>
+		</xtce:ContainerSet>
+	</xtce:TelemetryMetaData>
+</xtce:SpaceSystem>
