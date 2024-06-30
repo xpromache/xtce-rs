@@ -6,7 +6,7 @@ mod types;
 mod utils;
 mod misc;
 
-use roxmltree::{Document, Node, NodeId, TextPos};
+use roxmltree::{Document, Node, NodeId, TextPos, Error};
 
 use crate::mdb::*;
 use types::*;
@@ -40,6 +40,8 @@ pub enum XtceError {
     Io(std::io::Error),
     #[error("parse error")]
     Parse(XtceParseError),
+    #[error("XML parse error")]
+    XMLParse(roxmltree::Error),
     #[error("")]  
     DuplicateName(NameIdx, NodeId),
     /// undefined means that the item is not found in the name tree
@@ -94,6 +96,12 @@ impl std::convert::From<std::io::Error> for XtceError {
     }
 }
 
+impl std::convert::From<roxmltree::Error> for XtceError {
+    fn from(err: roxmltree::Error) -> Self {
+        XtceError::XMLParse(err)
+    }
+}
+
 
 pub fn parse(mdb: &mut MissionDatabase, path: &Path) -> Result<()> {
     let text = std::fs::read_to_string(path)?;
@@ -104,17 +112,51 @@ pub fn parse(mdb: &mut MissionDatabase, path: &Path) -> Result<()> {
         name_db: mdb.name_db(),
         systems: HashMap::new(),
     };
-    build_name_tree(&mut name_tree, &mut path, &root_element)?;
+    build_name_tree(&mut name_tree, &mut path, 0, &root_element)?;
 
-    build_mdb(mdb, &name_tree, &doc)?;
+    build_mdb(mdb, &name_tree, &vec![doc])?;
     //println!("Have {} xtce nodes", ctx.nodes.len());
     // create_details(mdb, &mut ctx, &doc);
     //  read_space_system(mdb, &mut QualifiedName::empty(), &root_element).or_else(|e| Err(e.into()))
     Ok(())
 }
 
+pub fn parse_files(paths: &[&Path]) -> Result<MissionDatabase> {
+    // Read all given files
+    //
+    // TODO: do this in one iter chain instead of two separate ones?
+    // ran into borrow checker complications though
+    let contents: Result<Vec<String>> = paths
+        .iter()
+        .map(|&path| std::fs::read_to_string(path).map_err(XtceError::from))
+        .collect();
+    let contents = contents?;
+
+    let documents: Result<Vec<roxmltree::Document>> = contents
+        .iter()
+        .map(|content| roxmltree::Document::parse(&content).map_err(XtceError::from))
+        .collect();
+    let documents = documents?;
+
+    let mut mdb = MissionDatabase::new();
+    let mut name_tree = NameTree {
+        name_db: mdb.name_db(),
+        systems: HashMap::new(),
+    };
+
+    for (i, doc) in documents.iter().enumerate() {
+        let root_element = doc.root_element();
+        let mut path = QualifiedName::empty();
+        build_name_tree(&mut name_tree, &mut path, i, &root_element)?;
+    }
+
+    build_mdb(&mut mdb, &name_tree, &documents)?;
+
+    Ok(mdb)
+}
+
 /*************** details **************/
-fn build_mdb(mdb: &mut MissionDatabase, name_tree: &NameTree, doc: &Document) -> Result<()> {
+fn build_mdb(mdb: &mut MissionDatabase, name_tree: &NameTree, doc: &Vec<Document>) -> Result<()> {
     let mut unresolved: Vec<(ParseContext, Reference)> = vec![];
 
     for (path, ssn) in &name_tree.systems {
@@ -122,8 +164,8 @@ fn build_mdb(mdb: &mut MissionDatabase, name_tree: &NameTree, doc: &Document) ->
         mdb.new_space_system(path.clone()).unwrap();
         //create space system
         for (ntype, m) in ssn {
-            for (name, node_id) in m {
-                let node = doc.get_node(*node_id).unwrap();
+            for (name, (doc_id, node_id)) in m {
+                let node = doc[*doc_id].get_node(*node_id).unwrap();
                 let ctx = ParseContext {
                     name_tree,
                     path,

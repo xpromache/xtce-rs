@@ -7,7 +7,7 @@ use super::{utils::read_mandatory_name, XtceError};
 pub(crate) struct NameTree {
     pub name_db: NameDb,
     pub systems:
-        HashMap<QualifiedName, EnumMap<NameReferenceType, HashMap<NameIdx, roxmltree::NodeId>>>,
+        HashMap<QualifiedName, EnumMap<NameReferenceType, HashMap<NameIdx, (usize, roxmltree::NodeId)>>>,
 }
 
 impl NameTree {
@@ -52,6 +52,7 @@ impl NameTree {
         system: &QualifiedName,
         name: &str,
         rtype: NameReferenceType,
+        doc_id: usize,
         node: roxmltree::NodeId,
     ) -> Result<(), XtceError> {
         let ssn = self.systems.get_mut(system).unwrap();
@@ -59,7 +60,7 @@ impl NameTree {
         if ssn[rtype].contains_key(&name_idx) {
             return Err(XtceError::DuplicateName(name_idx, node));
         }
-        ssn[rtype].insert(name_idx, node);
+        ssn[rtype].insert(name_idx, (doc_id, node));
 
         Ok(())
     }
@@ -187,6 +188,7 @@ impl NameTree {
 pub(crate) fn build_name_tree(
     tree: &mut NameTree,
     path: &mut QualifiedName,
+    doc_id: usize,
     node: &roxmltree::Node,
 ) -> Result<(), XtceError> {
     let name_str = read_mandatory_name(node)?;
@@ -197,10 +199,10 @@ pub(crate) fn build_name_tree(
     for cnode in node.children() {
         match cnode.tag_name().name() {
             "SpaceSystem" => {
-                build_name_tree(tree, path, &cnode)?;
+                build_name_tree(tree, path, doc_id, &cnode)?;
             }
             "TelemetryMetaData" => {
-                build_tm_name_tree(tree, path, &cnode)?;
+                build_tm_name_tree(tree, path, doc_id, &cnode)?;
             }
             "CommandMetaData" => {
                 //  read_command_meta_data(mdb, ctx, &cnode)?;
@@ -217,6 +219,7 @@ pub(crate) fn build_name_tree(
 fn build_tm_name_tree(
     tree: &mut NameTree,
     path: &mut QualifiedName,
+    doc_id: usize,
     node: &roxmltree::Node,
 ) -> Result<(), XtceError> {
     for cnode in node.children() {
@@ -224,19 +227,19 @@ fn build_tm_name_tree(
             "ParameterTypeSet" => {
                 for ptnode in cnode.children().filter(|n| n.tag_name().name() != "") {
                     let name = read_mandatory_name(&ptnode)?;
-                    tree.add_node(path, name, NameReferenceType::ParameterType, ptnode.id())?;
+                    tree.add_node(path, name, NameReferenceType::ParameterType, doc_id, ptnode.id())?;
                 }
             }
             "ParameterSet" => {
                 for ptnode in cnode.children().filter(|n| !n.tag_name().name().is_empty()) {
                     let name = read_mandatory_name(&ptnode)?;
-                    tree.add_node(path, name, NameReferenceType::Parameter, ptnode.id())?;
+                    tree.add_node(path, name, NameReferenceType::Parameter, doc_id, ptnode.id())?;
                 }
             }
             "ContainerSet" => {
                 for ptnode in cnode.children().filter(|n| n.tag_name().name() != "") {
                     let name = read_mandatory_name(&ptnode)?;
-                    tree.add_node(path, name, NameReferenceType::SequenceContainer, ptnode.id())?;
+                    tree.add_node(path, name, NameReferenceType::SequenceContainer, doc_id, ptnode.id())?;
                 }
             }
             "AlgorithmSet" => {
@@ -280,9 +283,9 @@ mod tests {
         let qn_abc = ntree.add_system("/a/b/c", node_id).unwrap();
         let _qn_bd = ntree.add_system("/b/d", node_id).unwrap();
 
-        ntree.add_node(&qn_ab, "para1", ptype, node_id).unwrap();
-        ntree.add_node(&qn_abc, "para2", ptype, node_id).unwrap();
-        ntree.add_node(&qn_b, "para3", ptype, node_id).unwrap();
+        ntree.add_node(&qn_ab, "para1", ptype, 0, node_id).unwrap();
+        ntree.add_node(&qn_abc, "para2", ptype, 0, node_id).unwrap();
+        ntree.add_node(&qn_b, "para3", ptype, 0, node_id).unwrap();
 
         let x = ntree.find_ref("/x", &root, ptype);
         assert!(x.is_none());

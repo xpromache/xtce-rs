@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SpaceSystem name="base-dt" xmlns:xtce="http://www.omg.org/spec/XTCE/20180204"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.omg.org/spec/XTCE/20180204 https://www.omg.org/spec/XTCE/20180204/SpaceSystem.xsd"
+	operationalStatus="unittest">
+	<TelemetryMetaData>
+		<ParameterTypeSet>
+			<IntegerParameterType name="uint8_t" signed="false">
+				<IntegerDataEncoding encoding="unsigned" sizeInBits="8" />
+			</IntegerParameterType>
+			<IntegerParameterType name="int16_t" signed="true">
+				<IntegerDataEncoding encoding="twosComplement" sizeInBits="16" />
+			</IntegerParameterType>
+		</ParameterTypeSet>
+	</TelemetryMetaData>
+
+	<CommandMetaData>
+		<ArgumentTypeSet>
+		</ArgumentTypeSet>
+	</CommandMetaData>
+</SpaceSystem>
