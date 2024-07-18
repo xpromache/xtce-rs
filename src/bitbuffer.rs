@@ -165,7 +165,7 @@ impl BitBuffer<'_> {
 
     pub fn get_byte(&mut self) -> u8 {
         self.ensure_byte_boundary();
-        let r = self.b[self.position/8];
+        let r = self.b[self.position / 8];
         self.position += 8;
         r
     }
@@ -184,8 +184,8 @@ impl BitBuffer<'_> {
     /// advances the position
     /// panics if there is not enough data in the buffer
     pub fn get_bytes_ref(&mut self, len: usize) -> &[u8] {
-        let pos = self.position/8;
-        self.position =  self.position + 8*len;
+        let pos = self.position / 8;
+        self.position = self.position + 8 * len;
         &self.b[pos..pos + len]
     }
 
@@ -250,7 +250,6 @@ mod tests {
 
         assert_eq!(0x18, bitbuf.get_byte());
         assert_eq!([0x7A, 0x23, 0xFF], bitbuf.get_bytes_ref(3));
-
     }
 
     #[test]
