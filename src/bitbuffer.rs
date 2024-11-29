@@ -165,7 +165,7 @@ impl BitBuffer<'_> {
 
     pub fn get_byte(&mut self) -> u8 {
         self.ensure_byte_boundary();
-        let r = self.b[self.position/8];
+        let r = self.b[self.position / 8];
         self.position += 8;
         r
     }
@@ -184,8 +184,8 @@ impl BitBuffer<'_> {
     /// advances the position
     /// panics if there is not enough data in the buffer
     pub fn get_bytes_ref(&mut self, len: usize) -> &[u8] {
-        let pos = self.position/8;
-        self.position =  self.position + 8*len;
+        let pos = self.position / 8;
+        self.position = self.position + 8 * len;
         &self.b[pos..pos + len]
     }
 
@@ -202,6 +202,108 @@ impl BitBuffer<'_> {
     }
 }
 
+pub struct BitWriter<'a> {
+    b: &'a mut [u8],
+    position: usize,
+    byte_order: ByteOrder,
+}
+
+#[derive(PartialEq, Debug)]
+pub enum WriteError {
+    BufferTooSmall,
+    UnalignedWrite
+}
+
+impl<'a> BitWriter<'a> {
+    pub fn wrap(b: &'a mut [u8]) -> BitWriter<'a> {
+        Self { b: b, position: 0, byte_order: ByteOrder::BigEndian }
+    }
+
+    pub fn check_bounds(&self, next_position: usize) -> Result<(), WriteError> {
+        if next_position.div_ceil(8) > self.b.len() {
+            Err(WriteError::BufferTooSmall)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn write_bytes(&mut self, b: &[u8]) -> Result<(), WriteError> {
+        if self.position & 0x7 != 0 {
+            return Err(WriteError::UnalignedWrite);
+        }
+
+        self.check_bounds(self.position + b.len() * 8)?;
+
+        self.b[self.position / 8..self.position / 8 + b.len()].clone_from_slice(b);
+        self.position += 8 * b.len();
+        Ok(())
+    }
+
+    pub fn skip_to_byte_boundary(&mut self) -> Result<(), WriteError> {
+        // move to the next byte boundary
+        let next_position = (self.position + 7) & !0x7;
+        self.check_bounds(next_position)?;
+
+        self.position = next_position;
+        Ok(())
+
+    }
+
+    pub fn write_bits(&mut self, value: u64, num_bits: usize) -> Result<(), WriteError> {
+        if self.byte_order == ByteOrder::LittleEndian {
+            todo!(); // is this actually needed?
+        }
+
+        let mut pos = self.position;
+        let mut byte_pos = pos / 8;
+        let mut n = num_bits;
+        let mut v = value;
+
+        self.check_bounds(pos + n)?;
+
+        let fbb = (-(pos as i32) & 0x7) as usize; // how many bits are from position until the end of the byte
+        if fbb > 0 {
+            if n <= fbb {
+                // the value fits entirely within the first byte
+                let mask: u8 = (1 << n) - 1;
+                self.b[byte_pos] &= !(mask << (fbb - n)); // clear existing bits that may be set
+                self.b[byte_pos] |= ((v as u8) & mask) << (fbb - n); // set requested bits
+                pos += num_bits;
+                self.position = pos;
+                return Ok(());
+            } else {
+                let mask = (1 << fbb) - 1;
+                self.b[byte_pos] &= !mask; // clear existing bits that may be set
+                self.b[byte_pos] |= (v >> (n - fbb)) as u8 & mask; // set requested bits
+                n -= fbb;
+                byte_pos += 1;
+                v &= (1 << n) - 1;
+            }
+        }
+
+        while n >= 8 {
+            n -= 8;
+            self.b[byte_pos] = (v >> n) as u8;
+            byte_pos += 1;
+            v &= (1 << n) - 1;
+        }
+
+        if n > 0 {
+            let mask = (1 << n) - 1;
+            self.b[byte_pos] &= !(mask << (8 - n));
+            self.b[byte_pos] |= (v as u8) << (8 - n);
+        }
+
+        pos += num_bits;
+        self.position = pos;
+        return Ok(())
+    }
+
+    pub fn set_byte_order(&mut self, byte_order: ByteOrder) {
+        self.byte_order = byte_order;
+    }
+}
+
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum ByteOrder {
     BigEndian,
@@ -215,6 +317,69 @@ mod tests {
     use rand::{rngs::SmallRng, RngCore, SeedableRng};
 
     use super::*;
+
+    #[test]
+    fn test_write_bigendian() {
+        let mut b: [u8; 4] = [0, 0, 0, 0];
+        let mut w = BitWriter::wrap(&mut b);
+
+        assert!(w.write_bits(5, 3).is_ok());
+        assert!(w.write_bits(0xabcdef, 24).is_ok());
+
+        assert_eq!([0xb5, 0x79, 0xbd, 0xe0], b);
+
+        let mut bb = BitBuffer::wrap(&b);
+
+        assert_eq!(5, bb.get_bits(3));
+        assert_eq!(0xabcdef, bb.get_bits(24));
+    }
+
+    #[test]
+    fn test_write_too_big() {
+        let mut b: [u8; 4] = [0, 0, 0, 0];
+        let mut w = BitWriter::wrap(&mut b);
+        assert!(w.write_bits(0x123456789, 37).is_err());
+        assert_eq!(b, [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_write_bytes() {
+        let mut b: [u8; 4] = [0, 0, 0, 0];
+        let mut w = BitWriter::wrap(&mut b);
+
+        assert!(w.write_bits(0xab, 8).is_ok());
+        assert!(w.write_bytes(&[0x12, 0x34, 0x56]).is_ok());
+        assert_eq!(w.position, 4 * 8);
+
+        assert!(w.write_bytes(&[0xff]).is_err());
+        assert_eq!(b, [0xab, 0x12, 0x34, 0x56]);
+    }
+
+    #[test]
+    fn test_unaligned_write() {
+        let mut b: [u8; 4] = [0, 0, 0, 0];
+        let mut w = BitWriter::wrap(&mut b);
+        assert!(w.write_bits(0x1234, 12).is_ok());
+        assert_eq!(w.write_bytes(&[0x12, 0x34, 0x56]).unwrap_err(), WriteError::UnalignedWrite);
+    }
+
+    #[test]
+    fn test_skip_to_byte_boundary() {
+        let mut b: [u8; 4] = [0, 0, 0, 0];
+        let mut w = BitWriter::wrap(&mut b);
+        assert!(w.write_bits(0x0b, 4).is_ok());
+        assert_eq!(w.position, 4);
+        assert!(w.skip_to_byte_boundary().is_ok());
+        assert_eq!(w.position, 8);
+
+        // repeated call should not change the position
+        assert!(w.skip_to_byte_boundary().is_ok());
+        assert_eq!(w.position, 8);
+
+        assert_eq!(b, [0x0b << 4, 0x00, 0x00, 0x00]);
+
+    }
+
 
     #[test]
     fn test_bigendian() {
@@ -250,7 +415,6 @@ mod tests {
 
         assert_eq!(0x18, bitbuf.get_byte());
         assert_eq!([0x7A, 0x23, 0xFF], bitbuf.get_bytes_ref(3));
-
     }
 
     #[test]
