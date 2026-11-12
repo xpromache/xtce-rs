@@ -18,8 +18,13 @@ use crate::mdb::{
     *,
 };
 
+/// adds a parameter type or an argument type (depending on ctx.rtype) to the MDB.
+///
+/// The argument types are read like the corresponding parameter types; the references
+/// (base types, aggregate members, array elements) are resolved in the namespace of the type being read.
 pub(super) fn add_parameter_type(mdb: &mut MissionDatabase, ctx: &ParseContext) -> Result<()> {
-    let tag = ctx.node.tag_name().name();
+    let norm_tag = ctx.node.tag_name().name().replace("ArgumentType", "ParameterType");
+    let tag = norm_tag.as_str();
     let dtype = match tag {
         "IntegerParameterType"
         | "FloatParameterType"
@@ -36,7 +41,11 @@ pub(super) fn add_parameter_type(mdb: &mut MissionDatabase, ctx: &ParseContext) 
         }
     };
 
-    mdb.add_parameter_type(ctx.path, dtype);
+    if ctx.rtype == NameReferenceType::ArgumentType {
+        mdb.add_argument_type(ctx.path, dtype);
+    } else {
+        mdb.add_parameter_type(ctx.path, dtype);
+    }
     Ok(())
 }
 
@@ -63,8 +72,10 @@ fn default_type_data(tag: &str) -> TypeData {
             one_string_value: "True".to_owned(),
             zero_string_value: "False".to_owned(),
         }),
-        "StringParameterType" => TypeData::String(StringDataType {}),
-        "BinaryParameterType" => TypeData::Binary(BinaryDataType { size_in_bits: 0 }),
+        "StringParameterType" => TypeData::String(StringDataType { min_chars: None, max_chars: None }),
+        "BinaryParameterType" => {
+            TypeData::Binary(BinaryDataType { size_in_bits: 0, min_bytes: None, max_bytes: None })
+        }
         "AbsoluteTimeParameterType" => TypeData::AbsoluteTime(AbsoluteTimeDataType {
             scale: 1.0,
             offset: 0.0,
@@ -88,7 +99,7 @@ fn read_base_data_type(mdb: &mut MissionDatabase, ctx: &ParseContext, tag: &str)
 
     let mut dtype = match node.attribute("baseType") {
         Some(base_ref) => {
-            let base_idx = resolve_ref(mdb, ctx, base_ref, NameReferenceType::ParameterType)?;
+            let base_idx = resolve_ref(mdb, ctx, base_ref, ctx.rtype)?;
             let base = mdb.get_data_type(base_idx);
             if !same_kind(&base.type_data, &type_data0) {
                 return Err(get_parse_error(
@@ -101,6 +112,9 @@ fn read_base_data_type(mdb: &mut MissionDatabase, ctx: &ParseContext, tag: &str)
         None => DataType::new(NameDescription::new(ctx.name), type_data0),
     };
     dtype.ndescr = read_name_description(ctx);
+    if let Some(v) = node.attribute("initialValue") {
+        dtype.initial_value = Some(v.to_owned());
+    }
 
     // attributes
     match &mut dtype.type_data {
@@ -154,6 +168,19 @@ fn read_base_data_type(mdb: &mut MissionDatabase, ctx: &ParseContext, tag: &str)
             }
             "UnitSet" => dtype.units = read_unit_set(&cnode)?,
             "ValidRange" => dtype.valid_range = Some(read_valid_range(&cnode)?),
+            // argument types have a set of ranges; like Yamcs, only the first one is used
+            "ValidRangeSet" => {
+                let applies_to_calibrated =
+                    read_attribute::<bool>(&cnode, "validRangeAppliesToCalibrated")?.unwrap_or(true);
+                let mut ranges = children(&cnode).filter(|n| n.tag_name().name() == "ValidRange");
+                if let Some(rnode) = ranges.next() {
+                    dtype.valid_range =
+                        Some(ValidRange { range: read_numeric_range(&rnode)?, applies_to_calibrated });
+                }
+                if ranges.next().is_some() {
+                    log::warn!("{}: only the first range of the ValidRangeSet is used", tag);
+                }
+            }
             "EnumerationList" => {
                 if let TypeData::Enumerated(edt) = &mut dtype.type_data {
                     edt.enumeration = read_enumeration_list(&cnode)?;
@@ -164,8 +191,18 @@ fn read_base_data_type(mdb: &mut MissionDatabase, ctx: &ParseContext, tag: &str)
             "DefaultAlarm" => read_default_alarm(&cnode, &mut dtype.type_data)?,
             "ContextAlarmList" => read_context_alarm_list(mdb, ctx, &cnode, &mut dtype.type_data)?,
             "LongDescription" | "AliasSet" | "AncillaryDataSet" => {}
-            // validation of string sizes, relevant for commands
-            "SizeRangeInCharacters" => {}
+            "SizeRangeInCharacters" => {
+                if let TypeData::String(sdt) = &mut dtype.type_data {
+                    sdt.min_chars = read_attribute::<u32>(&cnode, "minInclusive")?;
+                    sdt.max_chars = read_attribute::<u32>(&cnode, "maxInclusive")?;
+                }
+            }
+            "SizeRangeInBytes" => {
+                if let TypeData::Binary(bdt) = &mut dtype.type_data {
+                    bdt.min_bytes = read_attribute::<u32>(&cnode, "minInclusive")?;
+                    bdt.max_bytes = read_attribute::<u32>(&cnode, "maxInclusive")?;
+                }
+            }
             _ => log::warn!(
                 "ignoring {} unknown property '{}'",
                 tag,
@@ -580,19 +617,20 @@ fn read_aggregate_parameter_type(mdb: &mut MissionDatabase, ctx: &ParseContext) 
 // reads a member of an aggregate type from the XTCE
 fn read_member(mdb: &mut MissionDatabase, ctx: &ParseContext, node: &Node) -> Result<Member> {
     let ptype_str = read_mandatory_attribute::<String>(node, "typeRef")?;
-    let dtype = resolve_ref(mdb, ctx, &ptype_str, NameReferenceType::ParameterType)?;
+    let dtype = resolve_ref(mdb, ctx, &ptype_str, ctx.rtype)?;
     let name_str = read_mandatory_name(node)?;
     let name = mdb.get_or_intern(name_str);
     let ctx1 = ParseContext { name_tree: ctx.name_tree, node: *node, path: ctx.path, name, rtype: ctx.rtype, history: ctx.history };
     let ndescr = read_name_description(&ctx1);
 
-    Ok(Member { ndescr, dtype })
+    let initial_value = node.attribute("initialValue").map(|s| s.to_owned());
+    Ok(Member { ndescr, dtype, initial_value })
 }
 
 fn read_array_parameter_type(mdb: &mut MissionDatabase, ctx: &ParseContext) -> Result<DataType> {
     let node = &ctx.node;
     let ptype_str = read_mandatory_attribute::<String>(node, "arrayTypeRef")?;
-    let dtype = resolve_ref(mdb, ctx, &ptype_str, NameReferenceType::ParameterType)?;
+    let dtype = resolve_ref(mdb, ctx, &ptype_str, ctx.rtype)?;
     let mut number_of_dimensions = read_attribute::<usize>(node, "numberOfDimensions")?;
     let mut dim = Vec::new();
 

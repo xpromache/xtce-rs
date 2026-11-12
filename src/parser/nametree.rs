@@ -66,6 +66,25 @@ impl NameTree {
         Ok(())
     }
 
+    /// Registers a command container. Unlike the other items, the duplicates are accepted with a warning
+    /// (some files define a container in the CommandContainerSet with the same name as a MetaCommand container);
+    /// the first one registered can be referenced by name, the MetaCommand containers are anyway linked to their command.
+    fn add_command_container(&mut self, system: &QualifiedName, name: &str, doc_id: usize, node: roxmltree::NodeId) {
+        if self.add_node(system, name, NameReferenceType::CommandContainer, doc_id, node).is_err() {
+            log::warn!("duplicate command container name '{}'; only the first one can be referenced", name);
+        }
+    }
+
+    /// returns the node registered with the given name and type in the system
+    pub(crate) fn get_node(
+        &self,
+        system: &QualifiedName,
+        name: NameIdx,
+        rtype: NameReferenceType,
+    ) -> Option<(usize, roxmltree::NodeId)> {
+        self.systems.get(system).and_then(|m| m[rtype].get(&name)).copied()
+    }
+
     /// looks up the reference in the name tree returning a tuple
     /// (space system name, item name, member path)
     ///
@@ -208,7 +227,7 @@ pub(crate) fn build_name_tree(
             }
             "CommandMetaData" => {
                 // the parameter types, parameters and containers defined in the command section
-                // are added to the MDB like the telemetry ones; the commands are not yet supported
+                // are added to the MDB like the telemetry ones
                 build_tm_name_tree(tree, path, doc_id, &cnode)?;
             }
             "" | "Header" | "LongDescription" | "AliasSet" | "AncillaryDataSet" => {}
@@ -252,10 +271,35 @@ fn build_tm_name_tree(
                     tree.add_node(path, name, NameReferenceType::Algorithm, doc_id, anode.id())?;
                 }
             }
-            // command related, not yet supported
-            "ArgumentTypeSet" | "MetaCommandSet" | "CommandContainerSet" | "MessageSet" => {
-                log::debug!("ignoring '{}' (commands are not yet supported)", cnode.tag_name().name())
+            "ArgumentTypeSet" => {
+                for anode in cnode.children().filter(|n| !n.tag_name().name().is_empty()) {
+                    let name = read_mandatory_name(&anode)?;
+                    tree.add_node(path, name, NameReferenceType::ArgumentType, doc_id, anode.id())?;
+                }
             }
+            "MetaCommandSet" => {
+                for mnode in cnode.children().filter(|n| !n.tag_name().name().is_empty()) {
+                    match mnode.tag_name().name() {
+                        "MetaCommand" => {
+                            let name = read_mandatory_name(&mnode)?;
+                            tree.add_node(path, name, NameReferenceType::MetaCommand, doc_id, mnode.id())?;
+                            // the command container is registered in the same namespace as the ones from the CommandContainerSet
+                            for ccnode in mnode.children().filter(|n| n.tag_name().name() == "CommandContainer") {
+                                let name = read_mandatory_name(&ccnode)?;
+                                tree.add_command_container(path, name, doc_id, ccnode.id());
+                            }
+                        }
+                        name => log::warn!("ignoring '{}' (not supported)", name),
+                    }
+                }
+            }
+            "CommandContainerSet" => {
+                for ccnode in cnode.children().filter(|n| !n.tag_name().name().is_empty()) {
+                    let name = read_mandatory_name(&ccnode)?;
+                    tree.add_command_container(path, name, doc_id, ccnode.id());
+                }
+            }
+            "MessageSet" => log::debug!("ignoring 'MessageSet' (not supported)"),
             "" | "StreamSet" => {}
             _ => log::warn!("ignoring '{}'", cnode.tag_name().name()),
         };

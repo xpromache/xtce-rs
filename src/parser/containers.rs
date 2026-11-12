@@ -57,7 +57,7 @@ pub(super) fn add_container(
 }
 
 /// reads the size from the BinaryEncoding element of the container; only a fixed size is supported
-fn read_container_size(
+pub(super) fn read_container_size(
     mdb: &MissionDatabase,
     ctx: &ParseContext,
     node: &Node,
@@ -208,7 +208,7 @@ fn read_common_entry_elements(
     Ok(())
 }
 
-fn read_repeat_entry(
+pub(super) fn read_repeat_entry(
     mdb: &MissionDatabase,
     ctx: &ParseContext,
     node: &Node,
@@ -226,7 +226,7 @@ fn read_repeat_entry(
     Ok(RepeatEntry { count, offset_in_bits })
 }
 
-fn read_location_in_container(
+pub(super) fn read_location_in_container(
     mdb: &MissionDatabase,
     ctx: &ParseContext,
     node: &Node,

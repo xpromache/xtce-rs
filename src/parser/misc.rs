@@ -244,6 +244,9 @@ pub(super) fn resolve_ref(
         NameReferenceType::ParameterType => mdb.get_parameter_type_idx(qn, rname),
         NameReferenceType::Parameter => mdb.get_parameter_idx(qn, rname),
         NameReferenceType::SequenceContainer => mdb.get_container_idx(qn, rname),
+        NameReferenceType::ArgumentType => mdb.get_argument_type_idx(qn, rname),
+        NameReferenceType::MetaCommand => mdb.get_command_idx(qn, rname),
+        NameReferenceType::CommandContainer => mdb.get_command_container_idx(qn, rname),
         NameReferenceType::Algorithm => {
             return Err(XtceError::InvalidReference(format!(
                 "references to algorithms are not yet supported: {}",

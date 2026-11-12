@@ -1,3 +1,4 @@
+pub mod commands;
 pub mod debug;
 pub mod types;
 pub mod utils;
@@ -10,6 +11,7 @@ use std::fmt::Formatter;
 
 use lasso::{Key, ThreadedRodeo};
 
+use self::commands::{CommandContainer, CommandContainerIdx, MetaCommand, MetaCommandIdx};
 use self::types::{DataType, MemberPath};
 
 pub(crate) type NameIdx = lasso::Spur;
@@ -72,6 +74,9 @@ pub struct MissionDatabase {
 
     /// number of past values that have to be kept for the parameters referenced with negative instances
     pub history_depth: HashMap<ParameterIdx, usize>,
+
+    pub commands: Vec<MetaCommand>,
+    pub command_containers: Vec<CommandContainer>,
 }
 
 /// Math algorithm: computes the output parameter from the input parameters using an expression in reverse polish notation
@@ -194,6 +199,9 @@ pub enum NameReferenceType {
     Parameter,
     SequenceContainer,
     Algorithm,
+    ArgumentType,
+    MetaCommand,
+    CommandContainer,
 }
 
 impl std::fmt::Debug for QualifiedName {
@@ -494,6 +502,11 @@ pub struct SpaceSystem {
     pub parameter_types: HashMap<NameIdx, DataTypeIdx>,
     pub containers: HashMap<NameIdx, ContainerIdx>,
     pub algorithms: HashMap<NameIdx, AlgorithmIdx>,
+    /// argument types are stored together with the parameter types (in MissionDatabase::parameter_types)
+    /// but they have a separate namespace
+    pub argument_types: HashMap<NameIdx, DataTypeIdx>,
+    pub commands: HashMap<NameIdx, MetaCommandIdx>,
+    pub command_containers: HashMap<NameIdx, CommandContainerIdx>,
 }
 
 impl SpaceSystem {
@@ -506,6 +519,9 @@ impl SpaceSystem {
             parameter_types: HashMap::new(),
             containers: HashMap::new(),
             algorithms: HashMap::new(),
+            argument_types: HashMap::new(),
+            commands: HashMap::new(),
+            command_containers: HashMap::new(),
         }
     }
 
@@ -529,6 +545,8 @@ impl MissionDatabase {
             parameter_aliases: HashMap::new(),
             algorithms: Vec::new(),
             history_depth: HashMap::new(),
+            commands: Vec::new(),
+            command_containers: Vec::new(),
         };
         //create the root space system - it has "" name and an empty qualified name
         let ss_idx = SpaceSystemIdx::new(0);
@@ -616,6 +634,68 @@ impl MissionDatabase {
         }
 
         idx
+    }
+
+    pub fn add_argument_type(&mut self, space_system: &QualifiedName, atype: DataType) -> DataTypeIdx {
+        let name = atype.name();
+        let idx = DataTypeIdx::new(self.parameter_types.len());
+        self.parameter_types.push(atype);
+        let ss = self.get_space_system_mut(space_system).unwrap();
+        ss.argument_types.insert(name, idx);
+        idx
+    }
+
+    pub fn get_argument_type_idx(&self, space_system: &QualifiedName, name: NameIdx) -> Option<DataTypeIdx> {
+        self.get_space_system(space_system).and_then(|ss| ss.argument_types.get(&name)).copied()
+    }
+
+    pub fn add_command(&mut self, space_system: &QualifiedName, cmd: MetaCommand) -> MetaCommandIdx {
+        let name = cmd.name();
+        let idx = MetaCommandIdx::new(self.commands.len());
+        self.commands.push(cmd);
+        let ss = self.get_space_system_mut(space_system).unwrap();
+        ss.commands.insert(name, idx);
+        idx
+    }
+
+    pub fn get_command_idx(&self, space_system: &QualifiedName, name: NameIdx) -> Option<MetaCommandIdx> {
+        self.get_space_system(space_system).and_then(|ss| ss.commands.get(&name)).copied()
+    }
+
+    pub fn get_command(&self, idx: MetaCommandIdx) -> &MetaCommand {
+        &self.commands[idx.index()]
+    }
+
+    pub fn add_command_container(
+        &mut self,
+        space_system: &QualifiedName,
+        cc: CommandContainer,
+    ) -> CommandContainerIdx {
+        let name = cc.name();
+        let idx = CommandContainerIdx::new(self.command_containers.len());
+        self.command_containers.push(cc);
+        let ss = self.get_space_system_mut(space_system).unwrap();
+        ss.command_containers.insert(name, idx);
+        idx
+    }
+
+    /// adds a command container which cannot be referenced by name (because another one has the same name)
+    pub fn add_unnamed_command_container(&mut self, cc: CommandContainer) -> CommandContainerIdx {
+        let idx = CommandContainerIdx::new(self.command_containers.len());
+        self.command_containers.push(cc);
+        idx
+    }
+
+    pub fn get_command_container_idx(
+        &self,
+        space_system: &QualifiedName,
+        name: NameIdx,
+    ) -> Option<CommandContainerIdx> {
+        self.get_space_system(space_system).and_then(|ss| ss.command_containers.get(&name)).copied()
+    }
+
+    pub fn get_command_container(&self, idx: CommandContainerIdx) -> &CommandContainer {
+        &self.command_containers[idx.index()]
     }
 
     pub fn add_algorithm(&mut self, space_system: &QualifiedName, algo: MathAlgorithm) -> AlgorithmIdx {
@@ -728,6 +808,18 @@ impl MissionDatabase {
     pub fn search_parameter_type(&self, qnstr: &str) -> Option<DataTypeIdx> {
         let (ssqn, name) = QualifiedName::parse_ss_name(&self.name_db, qnstr)?;
         self.get_space_system(&ssqn)?.parameter_types.get(&name).copied()
+    }
+
+    /// searches a command by fully qualified name
+    pub fn search_command(&self, qnstr: &str) -> Option<MetaCommandIdx> {
+        let (ssqn, name) = QualifiedName::parse_ss_name(&self.name_db, qnstr)?;
+        self.get_space_system(&ssqn)?.commands.get(&name).copied()
+    }
+
+    /// searches an argument type by fully qualified name
+    pub fn search_argument_type(&self, qnstr: &str) -> Option<DataTypeIdx> {
+        let (ssqn, name) = QualifiedName::parse_ss_name(&self.name_db, qnstr)?;
+        self.get_space_system(&ssqn)?.argument_types.get(&name).copied()
     }
 
     /// searches a container by fully qualified name

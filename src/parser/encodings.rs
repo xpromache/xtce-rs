@@ -257,6 +257,14 @@ pub(super) fn read_binary_data_encoding(
                     size_in_bits = Some(BinarySize::LeadingSize(tag_bits));
                     continue;
                 }
+                // a dynamic size referencing _yamcs_ignore is used by Yamcs together with a transform algorithm
+                if let Some(dvnode) = children(&cnode).find(|n| n.tag_name().name() == "DynamicValue") {
+                    let dv = read_dynamic_value(mdb, ctx, &dvnode, true)?;
+                    if dv.para_ref.pidx == INVALID_PARAM_IDX {
+                        fixed_minus_one = true;
+                        continue;
+                    }
+                }
                 match read_integer_value(mdb, ctx, &cnode)? {
                     IntegerValue::FixedValue(-1) => fixed_minus_one = true,
                     IntegerValue::FixedValue(v) => {
@@ -268,7 +276,7 @@ pub(super) fn read_binary_data_encoding(
                     IntegerValue::DynamicValue(dv) => size_in_bits = Some(BinarySize::Dynamic(dv)),
                 }
             }
-            "FromBinaryTransformAlgorithm" => {
+            "FromBinaryTransformAlgorithm" | "ToBinaryTransformAlgorithm" => {
                 let text = children(&cnode)
                     .find(|n| n.tag_name().name() == "AlgorithmText")
                     .and_then(|n| n.text())
@@ -301,7 +309,7 @@ pub(super) fn read_binary_data_encoding(
         });
     } else if fixed_minus_one {
         return Err(get_parse_error(
-            "Binary size in bits -1 requires a FromBinaryTransformAlgorithm",
+            "Binary size in bits -1 (or dynamic _yamcs_ignore) requires a FromBinaryTransformAlgorithm",
             node,
         ));
     }
@@ -329,7 +337,9 @@ fn parse_leading_size_decoder(text: &str) -> Option<u32> {
     let text = text.trim();
     let rest = text
         .strip_prefix("org.yamcs.algo.LeadingSizeBinaryDecoder")
-        .or_else(|| text.strip_prefix("LeadingSizeBinaryDecoder"))?
+        .or_else(|| text.strip_prefix("LeadingSizeBinaryDecoder"))
+        .or_else(|| text.strip_prefix("org.yamcs.algo.LeadingSizeBinaryEncoder"))
+        .or_else(|| text.strip_prefix("LeadingSizeBinaryEncoder"))?
         .trim();
     if rest.is_empty() || rest == "()" {
         return Some(16);

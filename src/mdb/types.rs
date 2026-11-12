@@ -24,6 +24,8 @@ pub struct DataType {
     /// calibrators applied if their context matches; the first matching one is used
     pub context_calibrators: Vec<ContextCalibrator>,
     pub valid_range: Option<ValidRange>,
+    /// initial (default) engineering value as string; used for the command arguments
+    pub initial_value: Option<String>,
 }
 
 impl DataType {
@@ -62,6 +64,7 @@ impl DataType {
             calibrator: None,
             context_calibrators: Vec::new(),
             valid_range: None,
+            initial_value: None,
         }
     }
 }
@@ -277,6 +280,9 @@ pub struct EnumerationContextAlarm {
 #[derive(Debug, Clone)]
 pub struct BinaryDataType {
     pub size_in_bits: u32,
+    /// allowed size of the value in bytes (SizeRangeInBytes), used for command arguments
+    pub min_bytes: Option<u32>,
+    pub max_bytes: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -595,7 +601,11 @@ pub struct IntegerDataType {
 }
 
 #[derive(Debug, Clone)]
-pub struct StringDataType {}
+pub struct StringDataType {
+    /// allowed length of the string in characters (SizeRangeInCharacters), used for command arguments
+    pub min_chars: Option<u32>,
+    pub max_chars: Option<u32>,
+}
 
 #[derive(Debug, Clone)]
 pub struct BooleanDataType {
@@ -612,6 +622,8 @@ pub struct AggregateDataType {
 pub struct Member {
     pub ndescr: NameDescription,
     pub dtype: DataTypeIdx,
+    /// initial value (used for command arguments); overrides the initial value of the member type
+    pub initial_value: Option<String>,
 }
 
 impl NamedItem for Member {

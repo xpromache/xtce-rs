@@ -7,11 +7,13 @@ fn main() {
     for f in std::env::args().skip(1) {
         match xtce_rs::parser::parse_files(&[Path::new(&f)]) {
             Ok(mdb) => println!(
-                "{}: {} parameter types, {} parameters, {} containers",
+                "{}: {} data types, {} parameters, {} containers, {} commands, {} command containers",
                 f,
                 mdb.parameter_types.len(),
                 mdb.parameters.len(),
-                mdb.containers.len()
+                mdb.containers.len(),
+                mdb.commands.len(),
+                mdb.command_containers.len()
             ),
             Err(e) => println!("{}: ERROR {:?}", f, e),
         }

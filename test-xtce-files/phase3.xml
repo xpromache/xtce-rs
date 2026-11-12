@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Test file for the command encoding: argument types, calibrators, inheritance, fixed values,
+     container references, repeated entries and validation -->
+<SpaceSystem name="P3" xmlns="http://www.omg.org/spec/XTCE/20180204">
+	<TelemetryMetaData>
+		<ParameterTypeSet>
+			<IntegerParameterType name="uint8" signed="false">
+				<IntegerDataEncoding sizeInBits="8" />
+			</IntegerParameterType>
+		</ParameterTypeSet>
+		<ParameterSet>
+			<Parameter name="p_cnt" parameterTypeRef="uint8" />
+		</ParameterSet>
+	</TelemetryMetaData>
+	<CommandMetaData>
+		<ArgumentTypeSet>
+			<IntegerArgumentType name="apid_t" signed="false" sizeInBits="32">
+				<IntegerDataEncoding sizeInBits="11" />
+			</IntegerArgumentType>
+			<IntegerArgumentType name="u8_t" signed="false" sizeInBits="8">
+				<IntegerDataEncoding sizeInBits="8" />
+			</IntegerArgumentType>
+			<BooleanArgumentType name="bool_t">
+				<IntegerDataEncoding sizeInBits="1" />
+			</BooleanArgumentType>
+			<IntegerArgumentType name="s16le_t" signed="true" sizeInBits="16">
+				<IntegerDataEncoding sizeInBits="16" encoding="twosComplement" byteOrder="leastSignificantByteFirst" />
+			</IntegerArgumentType>
+			<IntegerArgumentType name="sm8_t" signed="true" sizeInBits="8">
+				<IntegerDataEncoding sizeInBits="8" encoding="signMagnitude" />
+			</IntegerArgumentType>
+			<IntegerArgumentType name="s8_t" signed="true" sizeInBits="8">
+				<IntegerDataEncoding sizeInBits="8" encoding="twosComplement" />
+			</IntegerArgumentType>
+			<FloatArgumentType name="f32_t" sizeInBits="32">
+				<FloatDataEncoding sizeInBits="32" />
+			</FloatArgumentType>
+			<!-- eng = 0.5 * raw - 10 -->
+			<FloatArgumentType name="volt_t" sizeInBits="64">
+				<IntegerDataEncoding sizeInBits="16">
+					<DefaultCalibrator>
+						<PolynomialCalibrator>
+							<Term exponent="0" coefficient="-10" />
+							<Term exponent="1" coefficient="0.5" />
+						</PolynomialCalibrator>
+					</DefaultCalibrator>
+				</IntegerDataEncoding>
+				<ValidRangeSet validRangeAppliesToCalibrated="true">
+					<ValidRange minInclusive="-10" maxInclusive="50" />
+				</ValidRangeSet>
+			</FloatArgumentType>
+			<FloatArgumentType name="temp_t" sizeInBits="64">
+				<IntegerDataEncoding sizeInBits="8">
+					<DefaultCalibrator>
+						<SplineCalibrator>
+							<SplinePoint raw="0" calibrated="0" />
+							<SplinePoint raw="10" calibrated="100" />
+							<SplinePoint raw="20" calibrated="150" />
+						</SplineCalibrator>
+					</DefaultCalibrator>
+				</IntegerDataEncoding>
+			</FloatArgumentType>
+			<FloatArgumentType name="poly2_t" sizeInBits="64">
+				<IntegerDataEncoding sizeInBits="8">
+					<DefaultCalibrator>
+						<PolynomialCalibrator>
+							<Term exponent="2" coefficient="1" />
+						</PolynomialCalibrator>
+					</DefaultCalibrator>
+				</IntegerDataEncoding>
+			</FloatArgumentType>
+			<EnumeratedArgumentType name="mode_t">
+				<IntegerDataEncoding sizeInBits="8" />
+				<EnumerationList>
+					<Enumeration value="0" label="OFF" />
+					<Enumeration value="1" label="ON" />
+					<Enumeration value="5" label="STANDBY" />
+				</EnumerationList>
+			</EnumeratedArgumentType>
+			<StringArgumentType name="str4_t">
+				<StringDataEncoding>
+					<SizeInBits>
+						<Fixed>
+							<FixedValue>32</FixedValue>
+						</Fixed>
+					</SizeInBits>
+				</StringDataEncoding>
+			</StringArgumentType>
+			<StringArgumentType name="strvar_t">
+				<StringDataEncoding>
+					<Variable maxSizeInBits="256">
+						<LeadingSize sizeInBitsOfSizeTag="8" />
+					</Variable>
+				</StringDataEncoding>
+				<SizeRangeInCharacters minInclusive="1" maxInclusive="5" />
+			</StringArgumentType>
+			<BinaryArgumentType name="blob_t">
+				<BinaryDataEncoding>
+					<SizeInBits>
+						<LeadingSize sizeInBitsOfSizeTag="16" />
+					</SizeInBits>
+				</BinaryDataEncoding>
+				<SizeRangeInBytes maxInclusive="4" />
+			</BinaryArgumentType>
+			<AbsoluteTimeArgumentType name="gps_ms_t">
+				<Encoding scale="0.001">
+					<IntegerDataEncoding sizeInBits="32" />
+				</Encoding>
+				<ReferenceTime>
+					<Epoch>GPS</Epoch>
+				</ReferenceTime>
+			</AbsoluteTimeArgumentType>
+			<AggregateArgumentType name="pos_t">
+				<MemberList>
+					<Member name="x" typeRef="s8_t" initialValue="1" />
+					<Member name="y" typeRef="s8_t" />
+				</MemberList>
+			</AggregateArgumentType>
+			<ArrayArgumentType name="arr3_t" arrayTypeRef="u8_t">
+				<DimensionList>
+					<Dimension>
+						<StartingIndex>
+							<FixedValue>0</FixedValue>
+						</StartingIndex>
+						<EndingIndex>
+							<FixedValue>2</FixedValue>
+						</EndingIndex>
+					</Dimension>
+				</DimensionList>
+			</ArrayArgumentType>
+		</ArgumentTypeSet>
+		<MetaCommandSet>
+			<MetaCommand name="BASE" abstract="true">
+				<ArgumentList>
+					<Argument name="apid" argumentTypeRef="apid_t" initialValue="100" />
+					<Argument name="flag" argumentTypeRef="bool_t" initialValue="True" />
+					<Argument name="type_id" argumentTypeRef="u8_t" />
+				</ArgumentList>
+				<CommandContainer name="BASE">
+					<EntryList>
+						<FixedValueEntry name="version" binaryValue="3" sizeInBits="2" />
+						<ArgumentRefEntry argumentRef="apid" />
+						<ArgumentRefEntry argumentRef="flag" />
+						<ArgumentRefEntry argumentRef="type_id" />
+						<FixedValueEntry name="spare" binaryValue="00" sizeInBits="2" />
+					</EntryList>
+				</CommandContainer>
+			</MetaCommand>
+			<MetaCommand name="CMD_NUMERIC">
+				<BaseMetaCommand metaCommandRef="BASE">
+					<ArgumentAssignmentList>
+						<ArgumentAssignment argumentName="type_id" argumentValue="1" />
+					</ArgumentAssignmentList>
+				</BaseMetaCommand>
+				<ArgumentList>
+					<Argument name="s16le" argumentTypeRef="s16le_t" />
+					<Argument name="sm8" argumentTypeRef="sm8_t" />
+					<Argument name="f32" argumentTypeRef="f32_t" />
+					<Argument name="volt" argumentTypeRef="volt_t" />
+					<Argument name="temp" argumentTypeRef="temp_t" />
+					<Argument name="mode" argumentTypeRef="mode_t" initialValue="ON" />
+				</ArgumentList>
+				<CommandContainer name="CMD_NUMERIC">
+					<EntryList>
+						<ArgumentRefEntry argumentRef="s16le" />
+						<ArgumentRefEntry argumentRef="sm8" />
+						<ArgumentRefEntry argumentRef="f32" />
+						<ArgumentRefEntry argumentRef="volt" />
+						<ArgumentRefEntry argumentRef="temp" />
+						<ArgumentRefEntry argumentRef="mode" />
+					</EntryList>
+					<BaseContainer containerRef="BASE" />
+				</CommandContainer>
+			</MetaCommand>
+			<MetaCommand name="CMD_STRUCT">
+				<BaseMetaCommand metaCommandRef="BASE">
+					<ArgumentAssignmentList>
+						<ArgumentAssignment argumentName="type_id" argumentValue="2" />
+						<ArgumentAssignment argumentName="apid" argumentValue="200" />
+					</ArgumentAssignmentList>
+				</BaseMetaCommand>
+				<ArgumentList>
+					<Argument name="name_fixed" argumentTypeRef="str4_t" />
+					<Argument name="name_var" argumentTypeRef="strvar_t" />
+					<Argument name="blob" argumentTypeRef="blob_t" />
+					<Argument name="t" argumentTypeRef="gps_ms_t" />
+					<Argument name="pos" argumentTypeRef="pos_t" />
+					<Argument name="arr" argumentTypeRef="arr3_t" />
+					<Argument name="rep" argumentTypeRef="u8_t" initialValue="7" />
+				</ArgumentList>
+				<CommandContainer name="CMD_STRUCT">
+					<EntryList>
+						<ArgumentRefEntry argumentRef="name_fixed" />
+						<ArgumentRefEntry argumentRef="name_var" />
+						<ArgumentRefEntry argumentRef="blob" />
+						<ArgumentRefEntry argumentRef="t" />
+						<ArgumentRefEntry argumentRef="pos" />
+						<ArgumentRefEntry argumentRef="arr" />
+						<ContainerRefEntry containerRef="TRAILER" />
+						<ArgumentRefEntry argumentRef="rep">
+							<RepeatEntry>
+								<Count>
+									<FixedValue>2</FixedValue>
+								</Count>
+							</RepeatEntry>
+						</ArgumentRefEntry>
+					</EntryList>
+					<BaseContainer containerRef="BASE" />
+				</CommandContainer>
+			</MetaCommand>
+			<!-- the argument is placed with an absolute location; the gap is filled with zeros -->
+			<MetaCommand name="CMD_LOCATION">
+				<BaseMetaCommand metaCommandRef="BASE">
+					<ArgumentAssignmentList>
+						<ArgumentAssignment argumentName="type_id" argumentValue="3" />
+					</ArgumentAssignmentList>
+				</BaseMetaCommand>
+				<ArgumentList>
+					<Argument name="a" argumentTypeRef="u8_t" />
+				</ArgumentList>
+				<CommandContainer name="CMD_LOCATION">
+					<EntryList>
+						<ArgumentRefEntry argumentRef="a">
+							<LocationInContainerInBits referenceLocation="containerStart">
+								<FixedValue>40</FixedValue>
+							</LocationInContainerInBits>
+						</ArgumentRefEntry>
+					</EntryList>
+					<BaseContainer containerRef="BASE" />
+				</CommandContainer>
+			</MetaCommand>
+			<MetaCommand name="CMD_POLY2">
+				<ArgumentList>
+					<Argument name="x" argumentTypeRef="poly2_t" />
+				</ArgumentList>
+				<CommandContainer name="CMD_POLY2">
+					<EntryList>
+						<ArgumentRefEntry argumentRef="x" />
+					</EntryList>
+				</CommandContainer>
+			</MetaCommand>
+			<MetaCommand name="CMD_PARAM">
+				<CommandContainer name="CMD_PARAM">
+					<EntryList>
+						<ParameterRefEntry parameterRef="p_cnt" />
+					</EntryList>
+				</CommandContainer>
+			</MetaCommand>
+		</MetaCommandSet>
+		<CommandContainerSet>
+			<CommandContainer name="TRAILER">
+				<BinaryEncoding>
+					<SizeInBits>
+						<FixedValue>32</FixedValue>
+					</SizeInBits>
+				</BinaryEncoding>
+				<EntryList>
+					<FixedValueEntry name="marker" binaryValue="AB" sizeInBits="8" />
+				</EntryList>
+			</CommandContainer>
+		</CommandContainerSet>
+	</CommandMetaData>
+</SpaceSystem>

@@ -250,6 +250,125 @@ impl<'a> BitBuffer<'a> {
     }
 }
 
+/// Writes bits into a growable byte buffer; the counterpart of [BitBuffer] used for encoding commands.
+///
+/// The bits are written at the current position which can be moved freely (also backwards) within the maximum size.
+/// The written bits overwrite the previous content. The size of the result is given by the maximum position reached.
+pub struct BitWriter {
+    b: Vec<u8>,
+    position: usize,
+    max_position: usize,
+    max_size_in_bits: usize,
+    byte_order: ByteOrder,
+}
+
+impl BitWriter {
+    /// creates a writer which accepts at most max_size_bytes
+    pub fn new(max_size_bytes: usize) -> BitWriter {
+        BitWriter {
+            b: Vec::with_capacity(max_size_bytes.min(256)),
+            position: 0,
+            max_position: 0,
+            max_size_in_bits: max_size_bytes.saturating_mul(8),
+            byte_order: ByteOrder::BigEndian,
+        }
+    }
+
+    pub fn set_byte_order(&mut self, byte_order: ByteOrder) {
+        self.byte_order = byte_order;
+    }
+
+    pub fn get_position(&self) -> usize {
+        self.position
+    }
+
+    /// sets the position; returns an error if it is beyond the maximum size
+    pub fn set_position(&mut self, position: usize) -> Result<()> {
+        if position > self.max_size_in_bits {
+            return Err(BitBufferError::OutOfBounds {
+                position,
+                requested: 0,
+                size: self.max_size_in_bits,
+            });
+        }
+        self.position = position;
+        Ok(())
+    }
+
+    /// the maximum position reached by the writes (or set explicitly with [Self::extend_to])
+    pub fn size_in_bits(&self) -> usize {
+        self.max_position
+    }
+
+    /// makes sure the result has at least the given size in bits (padded with zeros)
+    pub fn extend_to(&mut self, size_in_bits: usize) -> Result<()> {
+        if size_in_bits > self.max_size_in_bits {
+            return Err(BitBufferError::OutOfBounds {
+                position: 0,
+                requested: size_in_bits,
+                size: self.max_size_in_bits,
+            });
+        }
+        self.max_position = self.max_position.max(size_in_bits);
+        Ok(())
+    }
+
+    fn reserve(&mut self, num_bits: usize) -> Result<()> {
+        let end = self.position + num_bits;
+        if end > self.max_size_in_bits {
+            return Err(BitBufferError::OutOfBounds {
+                position: self.position,
+                requested: num_bits,
+                size: self.max_size_in_bits,
+            });
+        }
+        let nbytes = end.div_ceil(8);
+        if self.b.len() < nbytes {
+            self.b.resize(nbytes, 0);
+        }
+        Ok(())
+    }
+
+    /// writes the num_bits rightmost bits of v (max 64) at the current position, using the current byte order
+    pub fn put_bits(&mut self, v: u64, num_bits: usize) -> Result<()> {
+        if num_bits > 64 {
+            return Err(BitBufferError::InvalidNumBits(num_bits));
+        }
+        self.reserve(num_bits)?;
+        let pos = self.position;
+        for i in 0..num_bits {
+            let p = pos + i;
+            let (bit, shift) = match self.byte_order {
+                // most significant bit first; the bit position counts from the MSB of the byte
+                ByteOrder::BigEndian => ((v >> (num_bits - 1 - i)) & 1, 7 - (p & 7)),
+                // least significant bit first; the bit position counts from the LSB of the byte
+                ByteOrder::LittleEndian => ((v >> i) & 1, p & 7),
+            };
+            let byte = &mut self.b[p / 8];
+            *byte = (*byte & !(1 << shift)) | ((bit as u8) << shift);
+        }
+        self.position = pos + num_bits;
+        self.max_position = self.max_position.max(self.position);
+        Ok(())
+    }
+
+    /// writes the bytes at the current position (which does not need to be at a byte boundary)
+    pub fn put_bytes(&mut self, data: &[u8]) -> Result<()> {
+        let bo = self.byte_order;
+        self.byte_order = ByteOrder::BigEndian;
+        let r = data.iter().try_for_each(|&x| self.put_bits(x as u64, 8));
+        self.byte_order = bo;
+        r
+    }
+
+    /// returns the bytes written; the size is the maximum position rounded up to the next byte
+    pub fn into_bytes(mut self) -> Vec<u8> {
+        let n = self.max_position.div_ceil(8);
+        self.b.resize(n, 0);
+        self.b
+    }
+}
+
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum ByteOrder {
     BigEndian,
@@ -383,6 +502,51 @@ mod tests {
         bitbuf.set_position(0);
         assert!(bitbuf.get_bits(17).is_err());
         assert_eq!(0x0201, bitbuf.get_bits(16).unwrap());
+    }
+
+    #[test]
+    fn test_writer_roundtrip() {
+        let mut r = SmallRng::seed_from_u64(1);
+        for bo in [ByteOrder::BigEndian, ByteOrder::LittleEndian] {
+            let mut fields = Vec::new();
+            let mut w = BitWriter::new(1000);
+            w.set_byte_order(bo);
+            for _ in 0..200 {
+                let n = (r.next_u32() % 64 + 1) as usize;
+                let v = r.next_u64() & (u64::MAX >> (64 - n));
+                w.put_bits(v, n).unwrap();
+                fields.push((n, v));
+            }
+            let b = w.into_bytes();
+            let mut bb = BitBuffer::wrap(&b);
+            bb.set_byte_order(bo);
+            for (n, v) in fields {
+                assert_eq!(v, bb.get_bits(n).unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn test_writer() {
+        let mut w = BitWriter::new(4);
+        w.put_bits(0x187A23FF, 32).unwrap();
+        assert!(w.put_bits(1, 1).is_err());
+        w.set_position(4).unwrap();
+        w.put_bits(0x0, 8).unwrap();
+        assert_eq!(vec![0x10, 0x0A, 0x23, 0xFF], w.into_bytes());
+
+        let mut w = BitWriter::new(4);
+        w.set_byte_order(ByteOrder::LittleEndian);
+        w.put_bits(3, 3).unwrap();
+        w.put_bits(0, 12).unwrap();
+        w.put_bits(0x1FFFF, 17).unwrap();
+        assert_eq!(vec![0x03, 0x80, 0xFF, 0xFF], w.into_bytes());
+
+        let mut w = BitWriter::new(4);
+        w.put_bits(1, 3).unwrap();
+        assert_eq!(3, w.size_in_bits());
+        w.extend_to(16).unwrap();
+        assert_eq!(vec![0x20, 0x00], w.into_bytes());
     }
 
     #[test]

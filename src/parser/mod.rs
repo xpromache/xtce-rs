@@ -1,4 +1,5 @@
 mod algorithms;
+mod commands;
 mod containers;
 mod encodings;
 mod nametree;
@@ -212,7 +213,11 @@ fn add_item<'a>(
     unresolved: &mut Vec<(ParseContext<'a>, Reference)>,
 ) -> Result<()> {
     let r = match ctx.rtype {
-        NameReferenceType::ParameterType => add_parameter_type(mdb, ctx),
+        NameReferenceType::ParameterType | NameReferenceType::ArgumentType => {
+            add_parameter_type(mdb, ctx)
+        }
+        NameReferenceType::MetaCommand => commands::add_command(mdb, ctx),
+        NameReferenceType::CommandContainer => commands::add_command_container(mdb, ctx),
         NameReferenceType::Parameter => add_parameter(mdb, ctx),
         NameReferenceType::SequenceContainer => add_container(mdb, ctx),
         NameReferenceType::Algorithm => algorithms::add_algorithm(mdb, ctx),
