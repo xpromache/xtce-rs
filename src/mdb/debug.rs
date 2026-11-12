@@ -151,6 +151,7 @@ impl std::fmt::Debug for MdbItemDebug<'_, MatchCriteria> {
                 }
                 write!(f, ")")
             }
+            MatchCriteria::BooleanExpression(bexpr) => write!(f, "{:?}", bexpr),
         }
     }
 }

@@ -207,9 +207,11 @@ pub(crate) fn build_name_tree(
                 build_tm_name_tree(tree, path, doc_id, &cnode)?;
             }
             "CommandMetaData" => {
-                //  read_command_meta_data(mdb, ctx, &cnode)?;
+                // the parameter types, parameters and containers defined in the command section
+                // are added to the MDB like the telemetry ones; the commands are not yet supported
+                build_tm_name_tree(tree, path, doc_id, &cnode)?;
             }
-            "" => {}
+            "" | "Header" | "LongDescription" | "AliasSet" | "AncillaryDataSet" => {}
             _ => log::warn!("ignoring global property '{}'", cnode.tag_name().name()),
         };
     }
@@ -245,9 +247,16 @@ fn build_tm_name_tree(
                 }
             }
             "AlgorithmSet" => {
-                //read_algorithm_set(mdb, ctx, &cnode)?;
+                for anode in cnode.children().filter(|n| !n.tag_name().name().is_empty()) {
+                    let name = read_mandatory_name(&anode)?;
+                    tree.add_node(path, name, NameReferenceType::Algorithm, doc_id, anode.id())?;
+                }
             }
-            "" => {}
+            // command related, not yet supported
+            "ArgumentTypeSet" | "MetaCommandSet" | "CommandContainerSet" | "MessageSet" => {
+                log::debug!("ignoring '{}' (commands are not yet supported)", cnode.tag_name().name())
+            }
+            "" | "StreamSet" => {}
             _ => log::warn!("ignoring '{}'", cnode.tag_name().name()),
         };
     }

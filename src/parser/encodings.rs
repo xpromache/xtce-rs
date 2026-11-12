@@ -41,12 +41,20 @@ pub(super) fn read_integer_data_encoding(
         }
     });
 
-    let byte_order =
-        (read_attribute::<ByteOrder>(node, "byteOrder")?).unwrap_or(ByteOrder::BigEndian);
+    let byte_order = (read_attribute::<ByteOrder>(node, "byteOrder")?).unwrap_or_else(|| {
+        if let DataEncoding::Integer(ide) = base_encoding {
+            ide.byte_order
+        } else {
+            ByteOrder::BigEndian
+        }
+    });
+    if size_in_bits == 0 || size_in_bits > 64 {
+        return Err(get_parse_error(format!("Invalid integer sizeInBits {}", size_in_bits), node));
+    }
 
     for cnode in node.children() {
         match cnode.tag_name().name() {
-            "" => {}
+            "" | "DefaultCalibrator" | "ContextCalibratorList" => {}
             _ => log::warn!(
                 "ignoring integer data encoding unknown property '{}'",
                 cnode.tag_name().name()
@@ -109,7 +117,7 @@ pub(super) fn read_float_data_encoding(
 
     for cnode in node.children() {
         match cnode.tag_name().name() {
-            "" => {}
+            "" | "DefaultCalibrator" | "ContextCalibratorList" => {}
             _ => log::warn!(
                 "ignoring float data encoding unknown property '{}'",
                 cnode.tag_name().name()

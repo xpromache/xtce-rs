@@ -2,19 +2,37 @@ use std::collections::HashMap;
 
 use crate::{
     mdb::{
-        types::{DataEncoding, DataType, TypeData, AggregateDataType, EnumeratedDataType},
-        NameIdx, NamedItem,
+        types::{
+            AggregateDataType, ArrayDataType, Calibrator, DataEncoding, DataType,
+            EnumeratedDataType, TypeData,
+        },
+        IntegerValue, NameIdx, NamedItem,
     },
-    value::{AggregateValue, ContainerPosition, EnumeratedValue, Value, ContainerPositionDetails}};
+    proc::criteria_evaluator::MatchResult,
+    value::{
+        AggregateValue, ArrayValue, ContainerPosition, ContainerPositionDetails, EnumeratedValue,
+        Value,
+    },
+};
 
-use super::{encodings::extract_encoding, ProcCtx, Result, ProcError};
+use super::{calibrators, encodings::extract_encoding, ProcCtx, Result, ProcError};
+
+/// maximum number of elements in an array (same default as in Yamcs)
+pub const MAX_ARRAY_SIZE: usize = 10000;
 
 pub(crate) fn extract(ptype: &DataType, ctx: &mut ProcCtx) -> Result<(Value, ContainerPosition)> {
     let mdb = ctx.mdb();
     if let DataEncoding::None = ptype.encoding {
         match &ptype.type_data {
             TypeData::Aggregate(atype) => extract_aggregate(atype, ctx),
-            TypeData::Array(_) => Err(ctx.decoding_error("array parameters are not yet supported")),
+            TypeData::Array(atype) => {
+                if atype.dim.is_empty() {
+                    return Err(ctx.decoding_error(
+                        "the array size is not specified in the type (it has to be specified in an ArrayParameterRefEntry)",
+                    ));
+                }
+                extract_array(atype, &atype.dim, ctx)
+            }
             _ => {
                 return Err(ProcError::InvalidMdb(format!(
                     "base data type without encoding: {}",
@@ -52,7 +70,7 @@ fn extract_aggregate(
     let rv = Value::Aggregate(Box::new(aggrv));
     let cpos = ContainerPosition {
             start_offset,
-            bit_offset: bit_offset1 as u32,
+            bit_offset: bit_offset0 as u32,
             bit_size: (bit_offset1 - bit_offset0) as u32,
             details: ContainerPositionDetails::Aggregate(posm)
         };
@@ -61,13 +79,115 @@ fn extract_aggregate(
     Ok((rv, cpos))
 }
 
+/// extracts an array with the given dimensions (which may be different than the ones from the type)
+pub(crate) fn extract_array(
+    atype: &ArrayDataType,
+    dims: &[IntegerValue],
+    ctx: &mut ProcCtx,
+) -> Result<(Value, ContainerPosition)> {
+    let mdb = ctx.mdb();
+    let mut sizes = Vec::with_capacity(dims.len());
+    let mut total: usize = 1;
+    for iv in dims {
+        let s = ctx.get_integer_value(iv)?;
+        if s < 0 {
+            return Err(ctx.decoding_error(&format!("negative array size {}", s)));
+        }
+        let s = s as usize;
+        total = total.saturating_mul(s);
+        if s > MAX_ARRAY_SIZE || total > MAX_ARRAY_SIZE {
+            return Err(ctx.decoding_error(&format!(
+                "array size exceeds the maximum allowed {}",
+                MAX_ARRAY_SIZE
+            )));
+        }
+        sizes.push(s);
+    }
+
+    let start_offset = ctx.cbuf.start_offset;
+    let bit_offset0 = ctx.cbuf.get_position();
+    let etype = mdb.get_data_type(atype.dtype);
+    let mut values = Vec::with_capacity(total);
+    let mut positions = Vec::with_capacity(total);
+    for _ in 0..total {
+        let (v, cpos) = extract(etype, ctx)?;
+        values.push(v);
+        positions.push(cpos);
+    }
+    let bit_offset1 = ctx.cbuf.get_position();
+
+    let cpos = ContainerPosition {
+        start_offset,
+        bit_offset: bit_offset0 as u32,
+        bit_size: (bit_offset1 - bit_offset0) as u32,
+        details: ContainerPositionDetails::Array(positions),
+    };
+    Ok((Value::Array(Box::new(ArrayValue { dims: sizes, values })), cpos))
+}
+
+/// returns the calibrator to be used: the first context calibrator whose context matches or the default one
+fn select_calibrator<'a>(dtype: &'a DataType, ctx: &ProcCtx) -> Option<&'a Calibrator> {
+    for cc in &dtype.context_calibrators {
+        if ctx.pdata.get_criteria_evaluator(cc.context).evaluate(ctx) == MatchResult::OK {
+            return Some(&cc.calibrator);
+        }
+    }
+    dtype.calibrator.as_ref()
+}
+
+/// applies the calibrator for integer and float types; returns None if there is no calibrator
+fn apply_calibrator(rawv: &Value, dtype: &DataType, ctx: &ProcCtx) -> Result<Option<Value>> {
+    let cal = match &dtype.type_data {
+        TypeData::Integer(_) | TypeData::Float(_) => match select_calibrator(dtype, ctx) {
+            Some(cal) => cal,
+            None => return Ok(None),
+        },
+        _ => return Ok(None),
+    };
+    let x = match rawv {
+        Value::Int64(v) => *v as f64,
+        Value::Uint64(v) => *v as f64,
+        Value::Double(v) => *v,
+        Value::StringValue(v) => v.trim().parse::<f64>().map_err(|_| {
+            ProcError::DecodingError(format!("Cannot convert raw value '{}' to number for calibration", v))
+        })?,
+        _ => {
+            return Err(ProcError::DecodingError(format!(
+                "Cannot calibrate raw value {:?}",
+                rawv
+            )))
+        }
+    };
+    let y = calibrators::calibrate(cal, x)?;
+
+    // conversion to the engineering type like in Yamcs (rounding for integers)
+    let v = match &dtype.type_data {
+        TypeData::Integer(idt) => {
+            let bitsize = idt.size_in_bits as usize;
+            if idt.signed {
+                Value::int_value(bitsize, y.round() as i64)
+            } else if y >= 0.0 {
+                Value::uint_value(bitsize, y.round() as u64)
+            } else {
+                Value::uint_value(bitsize, 0)
+            }
+        }
+        _ => Value::Double(y),
+    };
+    Ok(Some(v))
+}
+
 // transforms the raw value into an egineering value
 pub(crate) fn calibrate(
     rawv: &Value,
     dtype: &DataType,
     ctx: &mut ProcCtx,
 ) -> Result<Value> {
+    if let Some(v) = apply_calibrator(rawv, dtype, ctx)? {
+        return Ok(v);
+    }
     match &rawv {
+        Value::Array(v) => from_array(v, dtype, ctx),
         Value::Int64(v) => from_signed_integer(*v, dtype, ctx),
         Value::Uint64(v) => from_unsigned_integer(*v, dtype, ctx),
         Value::Double(v) => from_double(*v, dtype, ctx),
@@ -82,10 +202,6 @@ pub(crate) fn calibrate(
 }
 
 fn from_signed_integer(v: i64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value> {
-    if let Some(cal) = &dt.calibrator {
-        // no calibrator is supported yet (the enum is empty)
-        match *cal {}
-    }
 
     let x = match &dt.type_data {
         TypeData::Integer(idt) => {
@@ -115,10 +231,6 @@ fn from_signed_integer(v: i64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value> {
 
 // computes the engineering value from a unsigned integer raw value
 fn from_unsigned_integer(rv: u64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value> {
-    if let Some(cal) = &dt.calibrator {
-        // no calibrator is supported yet (the enum is empty)
-        match *cal {}
-    }
     let x = match &dt.type_data {
         TypeData::Integer(idt) => {
             let bitsize = idt.size_in_bits as usize;
@@ -149,10 +261,6 @@ fn from_unsigned_integer(rv: u64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value
 
 // computes the engineering value from a double value
 fn from_double(rv: f64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value> {
-    if let Some(cal) = &dt.calibrator {
-        // no calibrator is supported yet (the enum is empty)
-        match *cal {}
-    }
     
     let x = match &dt.type_data {
         TypeData::Integer(idt) => {
@@ -209,6 +317,21 @@ fn from_aggregate(
     let ev = Value::Aggregate(Box::new(AggregateValue(aggrm)));
 
     Ok(ev)
+}
+
+// computes an array engineering value by calibrating each element
+fn from_array(arr_rv: &ArrayValue, dt: &DataType, ctx: &mut ProcCtx) -> Result<Value> {
+    let mdb = ctx.mdb();
+    if let TypeData::Array(atype) = &dt.type_data {
+        let etype = mdb.get_data_type(atype.dtype);
+        let mut values = Vec::with_capacity(arr_rv.values.len());
+        for v in &arr_rv.values {
+            values.push(calibrate(v, etype, ctx)?);
+        }
+        Ok(Value::Array(Box::new(ArrayValue { dims: arr_rv.dims.clone(), values })))
+    } else {
+        Err(ProcError::InvalidValue(format!("Got array value for type {:?}", dt)))
+    }
 }
 
 // computes an enumerated engineering value from a signed integer raw values

@@ -65,8 +65,8 @@ pub struct BitBuffer<'a> {
     byte_order: ByteOrder,
 }
 
-impl BitBuffer<'_> {
-    pub fn wrap<'a>(b: &'a [u8]) -> BitBuffer<'a> {
+impl<'a> BitBuffer<'a> {
+    pub fn wrap(b: &'a [u8]) -> BitBuffer<'a> {
         BitBuffer { b, position: 0, byte_order: ByteOrder::BigEndian }
     }
 
@@ -105,7 +105,8 @@ impl BitBuffer<'_> {
         }
     }
 
-    pub fn slice<'a>(&'a self) -> Result<BitBuffer<'a>> {
+    /// returns a new buffer starting at the current position (which has to be at a byte boundary)
+    pub fn slice(&self) -> Result<BitBuffer<'a>> {
         self.ensure_byte_boundary()?;
         self.check_available(0)?;
         let pos = self.position / 8;

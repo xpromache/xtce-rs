@@ -1,6 +1,7 @@
 use crate::{
     mdb::{
-        ContainerEntryData, ContainerIdx, MissionDatabase, NamedItem, ParameterIdx,
+        types::TypeData, ArrayParameterRefEntry, ContainerEntryData, ContainerIdx,
+        IndirectParameterRefEntry, MissionDatabase, NamedItem, ParameterIdx,
         ReferenceLocationType, SequenceContainer,
     },
     proc::criteria_evaluator::MatchResult,
@@ -39,7 +40,8 @@ fn extract_container(ctx: &mut ProcCtx, container: &SequenceContainer) -> Result
     let mdb = ctx.mdb();
     log::debug!("Extracting container {}", mdb.name2str(container.name()));
 
-    //let pdata: &mut ProcessorData = &mut ctx.pdata;
+    // the maximum position reached by any entry (entries can be positioned relative to the container start)
+    let mut max_pos = ctx.cbuf.get_position();
 
     for entry in &container.entries {
         if let Some(mcidx) = &entry.include_condition {
@@ -50,23 +52,51 @@ fn extract_container(ctx: &mut ProcCtx, container: &SequenceContainer) -> Result
         }
 
         if let Some(lic) = &entry.location_in_container {
-            let cbuf = &mut ctx.cbuf;
-            let pos = cbuf.get_position();
+            let location = ctx.get_integer_value(&lic.location_in_bits)?;
+            let pos = ctx.cbuf.get_position();
             let newpos = match lic.reference_location {
-                ReferenceLocationType::ContainerStart => lic.location_in_bits as i64,
-                ReferenceLocationType::PreviousEntry => pos as i64 + lic.location_in_bits as i64,
+                ReferenceLocationType::ContainerStart => location,
+                ReferenceLocationType::PreviousEntry => pos as i64 + location,
             };
 
-            if newpos < 0 || newpos > cbuf.bitsize() as i64 {
-                let serr = format!("Error when extracting entry from container {}. Bit position {} is outside the container (size in bits: {})",
-                ctx.mdb.name2str(container.name()), newpos, cbuf.bitsize());
-                return Err(ProcError::OutOfBounds(serr));
+            if newpos < 0 || newpos > ctx.cbuf.bitsize() as i64 {
+                return Err(ProcError::OutOfBounds(format!(
+                    "Container {}: the entry location {} is outside the buffer (size: {} bits)",
+                    mdb.name2str(container.name()),
+                    newpos,
+                    ctx.cbuf.bitsize()
+                )));
             }
-            cbuf.set_position(newpos as usize)
+            ctx.cbuf.set_position(newpos as usize)
         }
-        extract_entry(&entry.data, ctx)?;
+
+        if let Some(rep) = &entry.repeat {
+            let count = ctx.get_integer_value(&rep.count)?;
+            if count < 0 {
+                return Err(ctx.decoding_error(&format!("negative repeat count {}", count)));
+            }
+            for _ in 0..count {
+                extract_entry(&entry.data, ctx)?;
+                // like in Yamcs, the offset is applied also after the last repetition
+                let offset = ctx.get_integer_value(&rep.offset_in_bits)?;
+                let newpos = ctx.cbuf.get_position() as i64 + offset;
+                if newpos < 0 || newpos > ctx.cbuf.bitsize() as i64 {
+                    return Err(ProcError::OutOfBounds(format!(
+                        "repeat offset leads to position {} outside the buffer",
+                        newpos
+                    )));
+                }
+                ctx.cbuf.set_position(newpos as usize);
+            }
+        } else {
+            extract_entry(&entry.data, ctx)?;
+        }
+        max_pos = max_pos.max(ctx.cbuf.get_position());
     }
 
+    // all the inheriting containers whose restriction criteria match are extracted,
+    // each of them starting at the position after the last entry of this container
+    let bitp = ctx.cbuf.get_position();
     if let Some(children) = mdb.child_containers.get(&container.idx) {
         for c in children {
             let child = mdb.get_container(*c);
@@ -93,33 +123,127 @@ fn extract_container(ctx: &mut ProcCtx, container: &SequenceContainer) -> Result
                 mdb.name2str(child.name()),
                 match_res
             );
-    
+
             if match_res == MatchResult::OK {
+                ctx.cbuf.set_position(bitp);
                 extract_container(ctx, child)?;
+                max_pos = max_pos.max(ctx.cbuf.get_position());
             }
         }
     }
- 
+    ctx.cbuf.set_position(max_pos);
+
     Ok(())
 }
 
-fn extract_entry<'a, 'b>(entry: &'a ContainerEntryData, ctx: &mut ProcCtx) -> Result<()> {
-    match *entry {
-        ContainerEntryData::ParameterRef(pidx) => extract_parameter(pidx, ctx)?,
-        ContainerEntryData::ContainerRef(_) => {
-            return Err(ProcError::DecodingError("container ref entries are not yet supported".into()))
-        }
-        ContainerEntryData::IndirectParameterRef(_) => {
-            return Err(ProcError::DecodingError(
-                "indirect parameter ref entries are not yet supported".into(),
-            ))
-        }
-        ContainerEntryData::ArrayParameterRef(_) => {
-            return Err(ProcError::DecodingError(
-                "array parameter ref entries are not yet supported".into(),
-            ))
+fn extract_entry(entry: &ContainerEntryData, ctx: &mut ProcCtx) -> Result<()> {
+    match entry {
+        ContainerEntryData::ParameterRef(pidx) => extract_parameter(*pidx, ctx)?,
+        ContainerEntryData::ContainerRef(cidx) => extract_container_ref(*cidx, ctx)?,
+        ContainerEntryData::IndirectParameterRef(ipe) => extract_indirect_parameter(ipe, ctx)?,
+        ContainerEntryData::ArrayParameterRef(ape) => extract_array_parameter(ape, ctx)?,
+    };
+
+    Ok(())
+}
+
+/// extracts a container included in this one.
+///
+/// The included container is processed in a buffer starting at the current position (which has to be byte aligned);
+/// the position in the parent advances with the container size if specified or else with the size of the data extracted.
+///
+/// Note: Yamcs processes the root of the inheritance hierarchy of the referenced container;
+/// here the referenced container is processed directly (together with its matching inheriting containers).
+/// The two are equivalent if the referenced container has no base container.
+fn extract_container_ref(cidx: ContainerIdx, ctx: &mut ProcCtx) -> Result<()> {
+    let mdb = ctx.mdb();
+    let container = mdb.get_container(cidx);
+    let pos = ctx.cbuf.get_position();
+    if pos % 8 != 0 {
+        // like Yamcs, skip it with a warning
+        log::warn!(
+            "Container {} referenced at bit position {} which is not byte aligned; skipping it",
+            mdb.name2str(container.name()),
+            pos
+        );
+        return Ok(());
+    }
+
+    let sub = ctx.cbuf.slice()?;
+    let parent = std::mem::replace(&mut ctx.cbuf, sub);
+    let r = extract_container(ctx, container);
+    let consumed = ctx.cbuf.get_position();
+    ctx.cbuf = parent;
+    r?;
+
+    let size = container.size_in_bits.map(|s| s as usize).unwrap_or(consumed);
+    if pos + size > ctx.cbuf.bitsize() {
+        return Err(ProcError::OutOfBounds(format!(
+            "Container {} of size {} bits exceeds the buffer",
+            mdb.name2str(container.name()),
+            size
+        )));
+    }
+    ctx.cbuf.set_position(pos + size);
+    Ok(())
+}
+
+/// extracts a parameter whose identity is given by the value of another parameter
+fn extract_indirect_parameter(ipe: &IndirectParameterRefEntry, ctx: &mut ProcCtx) -> Result<()> {
+    let mdb = ctx.mdb();
+    let v = ctx.get_param_value(&ipe.para_ref).ok_or_else(|| {
+        ProcError::MissingValue(format!(
+            "No value for {} required by the indirect parameter entry",
+            ipe.para_ref.to_string(mdb)
+        ))
+    })?;
+    let name = v.to_string();
+    let pidx = match &ipe.alias_namespace {
+        Some(ns) => mdb.get_parameter_by_alias(ns, &name),
+        None => mdb.search_parameter(&name),
+    }
+    .ok_or_else(|| {
+        ProcError::DecodingError(format!(
+            "Cannot find the parameter '{}' (alias namespace {:?}) referenced by the indirect parameter entry",
+            name, ipe.alias_namespace
+        ))
+    })?;
+
+    extract_parameter(pidx, ctx)
+}
+
+fn extract_array_parameter(ape: &ArrayParameterRefEntry, ctx: &mut ProcCtx) -> Result<()> {
+    let mdb = ctx.mdb();
+    let pidx = ape.pidx;
+    let param = mdb.get_parameter(pidx);
+    let dtype = param.ptype.map(|idx| mdb.get_data_type(idx)).ok_or_else(|| {
+        ProcError::NoDataTypeAvailable(format!(
+            "No data type available for parameter {}",
+            mdb.name2str(param.name())
+        ))
+    })?;
+    let atype = match &dtype.type_data {
+        TypeData::Array(atype) => atype,
+        _ => {
+            return Err(ProcError::InvalidMdb(format!(
+                "Parameter {} used in an ArrayParameterRefEntry is not an array",
+                mdb.name2str(param.name())
+            )))
         }
     };
+    let dims = if ape.dim.is_empty() { &atype.dim } else { &ape.dim };
+    if dims.is_empty() {
+        return Err(ProcError::InvalidMdb(format!(
+            "No array size specified for parameter {}",
+            mdb.name2str(param.name())
+        )));
+    }
+
+    ctx.pidx.replace(pidx);
+    let (raw_value, _cpos) = types::extract_array(atype, dims, ctx)?;
+    let eng_value = types::calibrate(&raw_value, dtype, ctx)?;
+    ctx.result.push(ParameterValue { pidx, raw_value, eng_value });
+    ctx.pidx.take();
 
     Ok(())
 }

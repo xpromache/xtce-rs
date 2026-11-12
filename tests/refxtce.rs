@@ -35,14 +35,15 @@ fn binary_leading_size() {
 
 
 #[test]
-#[ignore = "array parameters are not yet supported (Phase 1)"]
 fn fixed_sized_array() {
     let mdb = init_mdb();
     // null terminated string in fixed size buffer
     let packet: Vec<u8> = vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 ];
 
     let root_container = mdb.search_container("/RefXtce/packet3").unwrap();
-    let _r = process(&mdb, &packet, root_container).unwrap();
+    let r = process(&mdb, &packet, root_container).unwrap();
+    assert_eq!(1, r.len());
+    assert_eq!("[258, 772, 1286, 1800]", r.eng(0).to_string());
 }
 
 #[test]

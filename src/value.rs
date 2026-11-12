@@ -29,6 +29,33 @@ pub enum Value {
     Enumerated(Box<EnumeratedValue>),
     Binary(Box<Vec<u8>>),
     Aggregate(Box<AggregateValue>),
+    Array(Box<ArrayValue>),
+}
+
+/// Multidimensional array stored in row-major order (the last index varies fastest)
+#[derive(Debug, PartialEq)]
+pub struct ArrayValue {
+    /// size of each dimension
+    pub dims: Vec<usize>,
+    pub values: Vec<Value>,
+}
+
+impl ArrayValue {
+    /// returns the element at the given (multidimensional) index
+    pub fn get(&self, index: &[u32]) -> Option<&Value> {
+        if index.len() != self.dims.len() {
+            return None;
+        }
+        let mut flat = 0usize;
+        for (&i, &d) in index.iter().zip(&self.dims) {
+            let i = i as usize;
+            if i >= d {
+                return None;
+            }
+            flat = flat * d + i;
+        }
+        self.values.get(flat)
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -86,6 +113,16 @@ impl std::fmt::Display for Value {
             Value::Enumerated(x) => write!(f, "{}", x.value),
             Value::Binary(x) => write!(f, "{}", x.encode_hex::<String>()),
             Value::Aggregate(x) => write!(f, "{:?}", x),
+            Value::Array(x) => {
+                write!(f, "[")?;
+                for (i, v) in x.values.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", v)?;
+                }
+                write!(f, "]")
+            }
         }        
     }
 }
@@ -156,7 +193,7 @@ pub struct ContainerPosition {
 pub enum ContainerPositionDetails {
     None,
     Aggregate(HashMap<NameIdx, ContainerPosition>),
-    //TODO arrays
+    Array(Vec<ContainerPosition>),
 }
 pub struct ParameterValueDebug<'a> {
     pv: &'a ParameterValue,
@@ -196,6 +233,16 @@ fn write_value(f: &mut Formatter<'_>, mdb: &MissionDatabase, v: &Value) -> fmt::
         Value::Enumerated(v) => write_enumerated(f, v)?,
         Value::Binary(v) => write!(f, "{}", v.encode_hex::<String>())?,
         Value::Aggregate(v) => write_aggregate(f, mdb, v)?,
+        Value::Array(v) => {
+            f.write_str("[")?;
+            for (i, x) in v.values.iter().enumerate() {
+                if i > 0 {
+                    f.write_str(", ")?;
+                }
+                write_value(f, mdb, x)?;
+            }
+            f.write_str("]")?;
+        }
     }
 
     Ok(())

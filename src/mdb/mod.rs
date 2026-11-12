@@ -63,6 +63,9 @@ pub struct MissionDatabase {
     //(it is the reverse of the base containers relation)
     pub child_containers: HashMap<ContainerIdx, Vec<ContainerIdx>>,
     pub decoder_defs: Vec<DecoderDef>,
+
+    /// namespace -> alias -> parameter
+    parameter_aliases: HashMap<String, HashMap<String, ParameterIdx>>,
 }
 
 pub trait NamedItem {
@@ -202,11 +205,18 @@ pub struct NameDescription {
     pub name: NameIdx,
     pub short_description: Option<String>,
     pub long_description: Option<String>,
+    pub aliases: Vec<Alias>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Alias {
+    pub namespace: String,
+    pub alias: String,
 }
 
 impl NameDescription {
     pub fn new(name: NameIdx) -> NameDescription {
-        NameDescription { name, short_description: None, long_description: None }
+        NameDescription { name, short_description: None, long_description: None, aliases: Vec::new() }
     }
 }
 
@@ -251,7 +261,7 @@ pub enum DataSource {
     External3,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UnitType {
     pub description: Option<String>,
     pub power: f64,
@@ -277,7 +287,10 @@ pub struct SequenceContainer {
     //abstract is a reserved word in Rust
     pub abstract_: bool,
     pub entries: Vec<ContainerEntry>,
-    pub idx: ContainerIdx
+    pub idx: ContainerIdx,
+    /// size of the container if specified with BinaryEncoding/SizeInBits
+    /// (used when the container is included in another container)
+    pub size_in_bits: Option<u32>,
 }
 
 impl NamedItem for SequenceContainer {
@@ -289,7 +302,15 @@ impl NamedItem for SequenceContainer {
 pub struct ContainerEntry {
     pub location_in_container: Option<LocationInContainerInBits>,
     pub include_condition: Option<MatchCriteriaIdx>,
+    pub repeat: Option<RepeatEntry>,
     pub data: ContainerEntryData,
+}
+
+/// The entry is repeated count times; after each repetition the position is moved with offset_in_bits
+#[derive(Debug)]
+pub struct RepeatEntry {
+    pub count: IntegerValue,
+    pub offset_in_bits: IntegerValue,
 }
 
 pub enum ContainerEntryData {
@@ -302,7 +323,7 @@ pub enum ContainerEntryData {
 #[derive(Debug)]
 pub struct LocationInContainerInBits {
     pub reference_location: ReferenceLocationType,
-    pub location_in_bits: i32,
+    pub location_in_bits: IntegerValue,
 }
 
 /// The location may be relative to the start of the container (containerStart),
@@ -316,6 +337,27 @@ pub enum ReferenceLocationType {
 pub enum MatchCriteria {
     Comparison(Comparison),
     ComparisonList(Vec<Comparison>),
+    BooleanExpression(BooleanExpression),
+}
+
+#[derive(Debug)]
+pub enum BooleanExpression {
+    Condition(Condition),
+    And(Vec<BooleanExpression>),
+    Or(Vec<BooleanExpression>),
+}
+
+#[derive(Debug)]
+pub struct Condition {
+    pub left: ParameterInstanceRef,
+    pub operator: ComparisonOperator,
+    pub right: ConditionRight,
+}
+
+#[derive(Debug)]
+pub enum ConditionRight {
+    Value(String),
+    ParameterRef(ParameterInstanceRef),
 }
 
 #[derive(Debug)]
@@ -390,23 +432,32 @@ pub struct DecoderDef {
     //before the processing starts, the factory function will be called to instantiate decoders which will then be used during the processing
 }
 
-pub struct IndirectParameterRefEntry {}
+/// The value of the parameter referenced by para_ref is the alias (in the given namespace) of the parameter to be extracted.
+/// If the namespace is not given, the value is the fully qualified name of the parameter.
+pub struct IndirectParameterRefEntry {
+    pub alias_namespace: Option<String>,
+    pub para_ref: ParameterInstanceRef,
+}
 
-pub struct ArrayParameterRefEntry {}
+pub struct ArrayParameterRefEntry {
+    pub pidx: ParameterIdx,
+    /// size of each dimension; if empty the sizes from the array type are used
+    pub dim: Vec<IntegerValue>,
+}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IntegerValue {
     FixedValue(i64),
     DynamicValue(DynamicValueType),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DynamicValueType {
     pub para_ref: ParameterInstanceRef,
     pub adjustment: Option<LinearAdjustment>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LinearAdjustment {
     pub slope: f64,
     pub intercept: f64
@@ -449,7 +500,8 @@ impl MissionDatabase {
             containers: Vec::new(),
             match_criteria: Vec::new(),
             child_containers: HashMap::new(),
-            decoder_defs: Vec::new()
+            decoder_defs: Vec::new(),
+            parameter_aliases: HashMap::new(),
         };
         //create the root space system - it has "" name and an empty qualified name
         let ss_idx = SpaceSystemIdx::new(0);
@@ -501,6 +553,12 @@ impl MissionDatabase {
         let param_name = param.name();
 
         let idx = ParameterIdx::new(self.parameters.len());
+        for a in &param.ndescr.aliases {
+            self.parameter_aliases
+                .entry(a.namespace.clone())
+                .or_default()
+                .insert(a.alias.clone(), idx);
+        }
         self.parameters.push(param);
 
         let ss = self.get_space_system_mut(space_system).unwrap();
@@ -613,6 +671,23 @@ impl MissionDatabase {
 
     pub fn name_db_ref(&self) -> &NameDb {
         &self.name_db
+    }
+
+    /// searches a parameter by its alias in the given namespace
+    pub fn get_parameter_by_alias(&self, namespace: &str, alias: &str) -> Option<ParameterIdx> {
+        self.parameter_aliases.get(namespace).and_then(|m| m.get(alias)).copied()
+    }
+
+    /// searches a parameter by fully qualified name
+    pub fn search_parameter(&self, qnstr: &str) -> Option<ParameterIdx> {
+        let (ssqn, name) = QualifiedName::parse_ss_name(&self.name_db, qnstr)?;
+        self.get_space_system(&ssqn)?.parameters.get(&name).copied()
+    }
+
+    /// searches a parameter type by fully qualified name
+    pub fn search_parameter_type(&self, qnstr: &str) -> Option<DataTypeIdx> {
+        let (ssqn, name) = QualifiedName::parse_ss_name(&self.name_db, qnstr)?;
+        self.get_space_system(&ssqn)?.parameter_types.get(&name).copied()
     }
 
     /// searches a container by fully qualified name

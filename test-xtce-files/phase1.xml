@@ -1,0 +1,292 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Test file for: base types, calibrators, alarms, valid ranges, arrays, repeat entries,
+     container ref entries, indirect parameter entries, dynamic locations and boolean expressions -->
+<SpaceSystem name="P1" xmlns="http://www.omg.org/spec/XTCE/20180204">
+	<TelemetryMetaData>
+		<ParameterTypeSet>
+			<IntegerParameterType name="uint8" signed="false">
+				<IntegerDataEncoding sizeInBits="8" />
+			</IntegerParameterType>
+			<IntegerParameterType name="uint16" signed="false">
+				<IntegerDataEncoding sizeInBits="16" />
+			</IntegerParameterType>
+			<!-- inherits the size from the base type -->
+			<IntegerParameterType name="int16_le" baseType="uint16" signed="true">
+				<IntegerDataEncoding encoding="twosComplement" byteOrder="leastSignificantByteFirst" />
+			</IntegerParameterType>
+			<EnumeratedParameterType name="mode_t">
+				<IntegerDataEncoding sizeInBits="8" />
+				<EnumerationList>
+					<Enumeration value="0" label="IDLE" />
+					<Enumeration value="1" label="ACTIVE" />
+					<Enumeration value="2" maxValue="10" label="OTHER" />
+				</EnumerationList>
+				<DefaultAlarm>
+					<EnumerationAlarmList>
+						<EnumerationAlarm enumerationLabel="OTHER" alarmLevel="warning" />
+					</EnumerationAlarmList>
+				</DefaultAlarm>
+			</EnumeratedParameterType>
+			<FloatParameterType name="poly_t" sizeInBits="64">
+				<UnitSet>
+					<Unit>V</Unit>
+				</UnitSet>
+				<IntegerDataEncoding sizeInBits="16">
+					<DefaultCalibrator>
+						<PolynomialCalibrator>
+							<Term exponent="0" coefficient="-10" />
+							<Term exponent="1" coefficient="0.5" />
+						</PolynomialCalibrator>
+					</DefaultCalibrator>
+				</IntegerDataEncoding>
+				<DefaultAlarm minViolations="2">
+					<StaticAlarmRanges>
+						<WarningRange minInclusive="0" maxInclusive="50" />
+						<CriticalRange minExclusive="-5" maxExclusive="80" />
+					</StaticAlarmRanges>
+				</DefaultAlarm>
+				<ContextAlarmList>
+					<ContextAlarm>
+						<StaticAlarmRanges>
+							<WarningRange minInclusive="5" maxInclusive="20" />
+						</StaticAlarmRanges>
+						<ContextMatch>
+							<Comparison parameterRef="mode" value="ACTIVE" />
+						</ContextMatch>
+					</ContextAlarm>
+				</ContextAlarmList>
+				<ValidRange minInclusive="-10" maxInclusive="100" validRangeAppliesToCalibrated="true" />
+			</FloatParameterType>
+			<!-- inherits everything (encoding, calibrator, alarms) from the base type -->
+			<FloatParameterType name="poly_derived_t" baseType="poly_t" shortDescription="derived" />
+			<IntegerParameterType name="poly_int_t" signed="false">
+				<IntegerDataEncoding sizeInBits="8">
+					<DefaultCalibrator>
+						<PolynomialCalibrator>
+							<Term exponent="1" coefficient="0.4" />
+						</PolynomialCalibrator>
+					</DefaultCalibrator>
+				</IntegerDataEncoding>
+			</IntegerParameterType>
+			<FloatParameterType name="spline_t">
+				<IntegerDataEncoding sizeInBits="8">
+					<DefaultCalibrator>
+						<SplineCalibrator>
+							<SplinePoint raw="20" calibrated="150" />
+							<SplinePoint raw="0" calibrated="0" />
+							<SplinePoint raw="10" calibrated="100" />
+						</SplineCalibrator>
+					</DefaultCalibrator>
+				</IntegerDataEncoding>
+			</FloatParameterType>
+			<FloatParameterType name="math_t">
+				<IntegerDataEncoding sizeInBits="8">
+					<DefaultCalibrator>
+						<MathOperationCalibrator>
+							<ThisParameterOperand />
+							<ValueOperand>2</ValueOperand>
+							<Operator>*</Operator>
+							<ValueOperand>1</ValueOperand>
+							<Operator>+</Operator>
+						</MathOperationCalibrator>
+					</DefaultCalibrator>
+				</IntegerDataEncoding>
+			</FloatParameterType>
+			<FloatParameterType name="ctx_t">
+				<IntegerDataEncoding sizeInBits="8">
+					<DefaultCalibrator>
+						<PolynomialCalibrator>
+							<Term exponent="1" coefficient="1" />
+						</PolynomialCalibrator>
+					</DefaultCalibrator>
+					<ContextCalibratorList>
+						<ContextCalibrator>
+							<ContextMatch>
+								<Comparison parameterRef="mode" value="ACTIVE" />
+							</ContextMatch>
+							<Calibrator>
+								<PolynomialCalibrator>
+									<Term exponent="1" coefficient="10" />
+								</PolynomialCalibrator>
+							</Calibrator>
+						</ContextCalibrator>
+					</ContextCalibratorList>
+				</IntegerDataEncoding>
+			</FloatParameterType>
+			<ArrayParameterType name="arr_t" arrayTypeRef="uint8" numberOfDimensions="1" />
+			<ArrayParameterType name="arr_dyn_t" arrayTypeRef="uint8">
+				<DimensionList>
+					<Dimension>
+						<StartingIndex>
+							<FixedValue>0</FixedValue>
+						</StartingIndex>
+						<EndingIndex>
+							<DynamicValue>
+								<ParameterInstanceRef parameterRef="count" />
+							</DynamicValue>
+						</EndingIndex>
+					</Dimension>
+				</DimensionList>
+			</ArrayParameterType>
+			<AbsoluteTimeParameterType name="time_t">
+				<Encoding scale="0.001" offset="1">
+					<IntegerDataEncoding sizeInBits="32" />
+				</Encoding>
+				<ReferenceTime>
+					<Epoch>GPS</Epoch>
+				</ReferenceTime>
+			</AbsoluteTimeParameterType>
+		</ParameterTypeSet>
+		<ParameterSet>
+			<Parameter name="mode" parameterTypeRef="mode_t" />
+			<Parameter name="count" parameterTypeRef="uint8" />
+			<Parameter name="p_poly" parameterTypeRef="poly_t" />
+			<Parameter name="p_poly_d" parameterTypeRef="poly_derived_t" />
+			<Parameter name="p_poly_int" parameterTypeRef="poly_int_t" />
+			<Parameter name="p_spline" parameterTypeRef="spline_t" />
+			<Parameter name="p_math" parameterTypeRef="math_t" />
+			<Parameter name="p_ctx" parameterTypeRef="ctx_t" />
+			<Parameter name="p_le" parameterTypeRef="int16_le" />
+			<Parameter name="rep" parameterTypeRef="uint8" />
+			<Parameter name="arr" parameterTypeRef="arr_t" />
+			<Parameter name="arr_dyn" parameterTypeRef="arr_dyn_t" />
+			<Parameter name="selector" parameterTypeRef="uint8" />
+			<Parameter name="target_a" parameterTypeRef="uint8">
+				<AliasSet>
+					<Alias nameSpace="id" alias="6" />
+				</AliasSet>
+			</Parameter>
+			<Parameter name="target_b" parameterTypeRef="uint16">
+				<AliasSet>
+					<Alias nameSpace="id" alias="7" />
+					<Alias nameSpace="MDB:OPS Name" alias="TARGET_B" />
+				</AliasSet>
+			</Parameter>
+			<Parameter name="inc1" parameterTypeRef="uint8" />
+			<Parameter name="inc2" parameterTypeRef="uint8" />
+			<Parameter name="after_inc" parameterTypeRef="uint8" />
+			<Parameter name="offset_param" parameterTypeRef="uint8" />
+			<Parameter name="dyn_loc" parameterTypeRef="uint8" />
+			<Parameter name="a" parameterTypeRef="uint8" />
+			<Parameter name="t" parameterTypeRef="time_t" />
+			<Parameter name="local1" parameterTypeRef="uint8">
+				<ParameterProperties dataSource="local" />
+			</Parameter>
+		</ParameterSet>
+		<ContainerSet>
+			<SequenceContainer name="root" abstract="true">
+				<EntryList>
+					<ParameterRefEntry parameterRef="mode" />
+					<ParameterRefEntry parameterRef="count" />
+				</EntryList>
+			</SequenceContainer>
+			<SequenceContainer name="calib">
+				<EntryList>
+					<ParameterRefEntry parameterRef="p_poly" />
+					<ParameterRefEntry parameterRef="p_poly_d" />
+					<ParameterRefEntry parameterRef="p_poly_int" />
+					<ParameterRefEntry parameterRef="p_spline" />
+					<ParameterRefEntry parameterRef="p_math" />
+					<ParameterRefEntry parameterRef="p_ctx" />
+					<ParameterRefEntry parameterRef="p_le" />
+				</EntryList>
+				<BaseContainer containerRef="root">
+					<RestrictionCriteria>
+						<BooleanExpression>
+							<ORedConditions>
+								<Condition>
+									<ParameterInstanceRef parameterRef="mode" />
+									<ComparisonOperator>==</ComparisonOperator>
+									<Value>ACTIVE</Value>
+								</Condition>
+								<ANDedConditions>
+									<Condition>
+										<ParameterInstanceRef parameterRef="count" />
+										<ComparisonOperator>&gt;</ComparisonOperator>
+										<Value>100</Value>
+									</Condition>
+									<Condition>
+										<ParameterInstanceRef parameterRef="count" />
+										<ComparisonOperator>&lt;</ComparisonOperator>
+										<Value>250</Value>
+									</Condition>
+								</ANDedConditions>
+							</ORedConditions>
+						</BooleanExpression>
+					</RestrictionCriteria>
+				</BaseContainer>
+			</SequenceContainer>
+			<SequenceContainer name="struct">
+				<EntryList>
+					<ParameterRefEntry parameterRef="rep">
+						<RepeatEntry>
+							<Count>
+								<DynamicValue>
+									<ParameterInstanceRef parameterRef="count" />
+								</DynamicValue>
+							</Count>
+							<Offset>
+								<FixedValue>8</FixedValue>
+							</Offset>
+						</RepeatEntry>
+					</ParameterRefEntry>
+					<ArrayParameterRefEntry parameterRef="arr">
+						<DimensionList>
+							<Size>
+								<FixedValue>2</FixedValue>
+							</Size>
+						</DimensionList>
+					</ArrayParameterRefEntry>
+					<ParameterRefEntry parameterRef="arr_dyn" />
+					<ParameterRefEntry parameterRef="selector" />
+					<IndirectParameterRefEntry aliasNameSpace="id">
+						<ParameterInstance parameterRef="selector" />
+					</IndirectParameterRefEntry>
+					<ContainerRefEntry containerRef="inc" />
+					<ParameterRefEntry parameterRef="after_inc" />
+					<ParameterRefEntry parameterRef="offset_param" />
+					<ParameterRefEntry parameterRef="dyn_loc">
+						<LocationInContainerInBits referenceLocation="previousEntry">
+							<DynamicValue>
+								<ParameterInstanceRef parameterRef="offset_param" />
+								<LinearAdjustment slope="8" />
+							</DynamicValue>
+						</LocationInContainerInBits>
+					</ParameterRefEntry>
+				</EntryList>
+				<BaseContainer containerRef="root">
+					<RestrictionCriteria>
+						<Comparison parameterRef="mode" value="IDLE" />
+					</RestrictionCriteria>
+				</BaseContainer>
+			</SequenceContainer>
+			<SequenceContainer name="cmp">
+				<EntryList>
+					<ParameterRefEntry parameterRef="a" />
+				</EntryList>
+				<BaseContainer containerRef="root">
+					<RestrictionCriteria>
+						<BooleanExpression>
+							<Condition>
+								<ParameterInstanceRef parameterRef="mode" useCalibratedValue="false" />
+								<ComparisonOperator>==</ComparisonOperator>
+								<ParameterInstanceRef parameterRef="count" />
+							</Condition>
+						</BooleanExpression>
+					</RestrictionCriteria>
+				</BaseContainer>
+			</SequenceContainer>
+			<SequenceContainer name="inc">
+				<BinaryEncoding>
+					<SizeInBits>
+						<FixedValue>24</FixedValue>
+					</SizeInBits>
+				</BinaryEncoding>
+				<EntryList>
+					<ParameterRefEntry parameterRef="inc1" />
+					<ParameterRefEntry parameterRef="inc2" />
+				</EntryList>
+			</SequenceContainer>
+		</ContainerSet>
+	</TelemetryMetaData>
+</SpaceSystem>

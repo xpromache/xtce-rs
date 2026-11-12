@@ -207,8 +207,11 @@ fn add_item<'a>(
         NameReferenceType::ParameterType => add_parameter_type(mdb, ctx),
         NameReferenceType::Parameter => add_parameter(mdb, ctx),
         NameReferenceType::SequenceContainer => add_container(mdb, ctx),
-        _ => {
-            println!("todo node type {:?}", ctx.rtype);
+        NameReferenceType::Algorithm => {
+            log::debug!(
+                "algorithm {} not loaded (algorithms are not yet supported)",
+                mdb.name2str(ctx.name)
+            );
             Ok(())
         }
     };

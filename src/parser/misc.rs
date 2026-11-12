@@ -3,7 +3,8 @@ use std::str::FromStr;
 use roxmltree::Node;
 
 use crate::mdb::{
-    types::MemberPath, Comparison, ComparisonOperator, DynamicValueType, Index, IntegerValue,
+    types::MemberPath, BooleanExpression, Comparison, ComparisonOperator, Condition,
+    ConditionRight, DynamicValueType, Index, IntegerValue,
     LinearAdjustment, MatchCriteria, MatchCriteriaIdx, MissionDatabase, NameReferenceType,
     ParameterInstanceRef,
 };
@@ -28,9 +29,12 @@ pub(super) fn read_match_criteria(
             "ComparisonList" => {
                 MatchCriteria::ComparisonList(read_comparison_list(mdb, ctx, &cnode)?)
             }
-            "BooleanExpression" | "CustomAlgorithm" => {
+            "BooleanExpression" => {
+                MatchCriteria::BooleanExpression(read_boolean_expression(mdb, ctx, &cnode)?)
+            }
+            "CustomAlgorithm" => {
                 return Err(get_parse_error(
-                    format!("{} match criteria are not yet supported", cnode.tag_name().name()),
+                    "CustomAlgorithm match criteria are not supported",
                     &cnode,
                 ));
             }
@@ -48,6 +52,91 @@ pub(super) fn read_match_criteria(
     }
 
     Err(get_parse_error("No criteria specified", node))
+}
+
+/// reads a BooleanExpression element (which contains one Condition, ANDedConditions or ORedConditions)
+fn read_boolean_expression(
+    mdb: &MissionDatabase,
+    ctx: &ParseContext,
+    node: &Node,
+) -> Result<BooleanExpression> {
+    let mut it = children(node);
+    let r = match it.next() {
+        Some(cnode) => read_boolean_expression_element(mdb, ctx, &cnode)?,
+        None => return Err(get_parse_error("Empty boolean expression", node)),
+    };
+    if let Some(cnode) = it.next() {
+        return Err(get_parse_error("Boolean expression with more than one element", &cnode));
+    }
+    Ok(r)
+}
+
+fn read_boolean_expression_element(
+    mdb: &MissionDatabase,
+    ctx: &ParseContext,
+    node: &Node,
+) -> Result<BooleanExpression> {
+    match node.tag_name().name() {
+        "Condition" => Ok(BooleanExpression::Condition(read_condition(mdb, ctx, node)?)),
+        "ANDedConditions" | "ORedConditions" => {
+            let mut list = Vec::new();
+            for cnode in children(node) {
+                list.push(read_boolean_expression_element(mdb, ctx, &cnode)?);
+            }
+            if list.is_empty() {
+                return Err(get_parse_error("Empty list of conditions", node));
+            }
+            if node.tag_name().name() == "ANDedConditions" {
+                Ok(BooleanExpression::And(list))
+            } else {
+                Ok(BooleanExpression::Or(list))
+            }
+        }
+        _ => Err(get_parse_error(
+            format!("Unexpected element {} in boolean expression", node.tag_name().name()),
+            node,
+        )),
+    }
+}
+
+fn read_condition(mdb: &MissionDatabase, ctx: &ParseContext, node: &Node) -> Result<Condition> {
+    let mut left = None;
+    let mut operator = None;
+    let mut right = None;
+    for cnode in children(node) {
+        match cnode.tag_name().name() {
+            "ParameterInstanceRef" => {
+                let pref = read_para_insta_ref(mdb, ctx, &cnode, false)?;
+                if left.is_none() {
+                    left = Some(pref);
+                } else {
+                    right = Some(ConditionRight::ParameterRef(pref));
+                }
+            }
+            "ComparisonOperator" => {
+                let s = read_mandatory_text::<String>(&cnode)?;
+                operator = Some(
+                    ComparisonOperator::from_str(s.trim()).map_err(|_| {
+                        get_parse_error(format!("Invalid comparison operator '{}'", s), &cnode)
+                    })?,
+                );
+            }
+            "Value" => {
+                right = Some(ConditionRight::Value(cnode.text().unwrap_or("").to_owned()))
+            }
+            _ => return Err(get_parse_error(
+                format!("Unsupported element {} in condition", cnode.tag_name().name()),
+                &cnode,
+            )),
+        }
+    }
+    match (left, operator, right) {
+        (Some(left), Some(operator), Some(right)) => Ok(Condition { left, operator, right }),
+        _ => Err(get_parse_error(
+            "Condition requires a ParameterInstanceRef, a ComparisonOperator and a Value or a second ParameterInstanceRef",
+            node,
+        )),
+    }
 }
 
 pub(super) fn read_comparison(

@@ -1,8 +1,9 @@
 use crate::{
     bitbuffer::{BitBuffer, BitBufferError},
     mdb::{
-        utils::get_member_value, DynamicValueType, MatchCriteria, MatchCriteriaIdx,
-        MissionDatabase, NamedItem, ParameterIdx, ParameterInstanceRef, MdbError,
+        debug::MdbItemDebug, utils::get_member_value, DynamicValueType, IntegerValue,
+        MatchCriteria, MatchCriteriaIdx, MissionDatabase, NamedItem, ParameterIdx,
+        ParameterInstanceRef, MdbError,
     },
     pvlist::ParameterValueList,
     value::Value,
@@ -10,6 +11,7 @@ use crate::{
 
 use self::criteria_evaluator::CriteriaEvaluator;
 
+pub mod calibrators;
 pub mod containers;
 pub mod criteria_evaluator;
 pub mod encodings;
@@ -20,21 +22,21 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ProcError {
-    #[error("out of bounds")]
+    #[error("out of bounds: {0}")]
     OutOfBounds(String),
-    #[error("no data type available")]
+    #[error("no data type available: {0}")]
     NoDataTypeAvailable(String),
-    #[error("invalid mdb")]
+    #[error("invalid mdb: {0}")]
     InvalidMdb(String),
-    #[error("invalid value")]
+    #[error("invalid value: {0}")]
     InvalidValue(String),
-    #[error("out of range")]
+    #[error("out of range: {0}")]
     OutOfRange(String),
-    #[error("decoding error")]
+    #[error("decoding error: {0}")]
     DecodingError(String),
-    #[error("missing value")]
+    #[error("missing value: {0}")]
     MissingValue(String),
-    #[error("MDB error")]
+    #[error("MDB error: {0}")]
     Mdb(MdbError),
 }
 
@@ -66,9 +68,20 @@ pub struct ProcessorData {
 
 impl ProcessorData {
     pub fn new(mdb: &MissionDatabase) -> Result<ProcessorData> {
-        let mut evaluators = Vec::new();
+        let mut evaluators: Vec<Box<dyn CriteriaEvaluator>> = Vec::new();
         for criteria in &mdb.match_criteria {
-            evaluators.push(ProcessorData::create_evaluator(mdb, criteria)?);
+            // an invalid criteria should not prevent the processing of everything else
+            match ProcessorData::create_evaluator(mdb, criteria) {
+                Ok(ev) => evaluators.push(ev),
+                Err(e) => {
+                    log::warn!(
+                        "Cannot create evaluator for {:?}: {}; it will always evaluate to ERROR",
+                        MdbItemDebug { mdb, item: criteria },
+                        e
+                    );
+                    evaluators.push(Box::new(criteria_evaluator::ErrorEvaluator));
+                }
+            }
         }
         Ok(ProcessorData { evaluators })
     }
@@ -85,6 +98,9 @@ impl ProcessorData {
             MatchCriteria::Comparison(comp) => criteria_evaluator::from_comparison(mdb, comp)?,
             MatchCriteria::ComparisonList(clist) => {
                 criteria_evaluator::from_comparison_list(mdb, clist)?
+            }
+            MatchCriteria::BooleanExpression(bexpr) => {
+                criteria_evaluator::from_boolean_expression(mdb, bexpr)?
             }
         };
 
@@ -104,8 +120,12 @@ impl<'a> ContainerBuf<'a> {
         ContainerBuf { buf: BitBuffer::wrap(packet), start_offset: 0 }
     }
 
-    pub fn slice(&'a self) -> Result<ContainerBuf<'a>> {
-        Ok(ContainerBuf { buf: self.buf.slice()?, start_offset: (self.buf.get_position() / 8) as u32 })
+    /// returns a new container buffer starting at the current position (which has to be at a byte boundary)
+    pub fn slice(&self) -> Result<ContainerBuf<'a>> {
+        Ok(ContainerBuf {
+            buf: self.buf.slice()?,
+            start_offset: self.start_offset + (self.buf.get_position() / 8) as u32,
+        })
     }
 
     fn set_position(&mut self, bit_pos: usize) {
@@ -205,6 +225,43 @@ impl<'a> ProcCtx<'a, '_, '_> {
             })?;
 
             Ok(x as u64)
+        }
+    }
+
+    /// returns the value of a fixed or dynamic integer value
+    fn get_integer_value(&self, iv: &IntegerValue) -> Result<i64> {
+        match iv {
+            IntegerValue::FixedValue(v) => Ok(*v),
+            IntegerValue::DynamicValue(dv) => self.get_dynamic_int_value(dv),
+        }
+    }
+
+    /// returns the value of the dynamic value as a signed integer
+    fn get_dynamic_int_value(&self, dynpara: &DynamicValueType) -> Result<i64> {
+        let para_ref = &dynpara.para_ref;
+        let para_name = || self.mdb.name2str(self.mdb.get_parameter(para_ref.pidx).name());
+        let v = self.get_param_value(para_ref).ok_or_else(|| {
+            ProcError::MissingValue(format!(
+                "Cannot find a value for parameter {} in the current context",
+                para_name()
+            ))
+        })?;
+        let not_integer = || {
+            ProcError::DecodingError(format!(
+                "Cannot convert value {:?} for parameter {} to integer",
+                v,
+                para_name()
+            ))
+        };
+        if let Some(adj) = &dynpara.adjustment {
+            let x: f64 = v.try_into().map_err(|_| not_integer())?;
+            Ok((x * adj.slope + adj.intercept) as i64)
+        } else {
+            match v {
+                Value::Int64(x) => Ok(*x),
+                Value::Uint64(x) => i64::try_from(*x).map_err(|_| not_integer()),
+                _ => Err(not_integer()),
+            }
         }
     }
 

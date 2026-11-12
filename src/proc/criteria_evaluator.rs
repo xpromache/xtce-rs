@@ -2,8 +2,8 @@ use std::mem::discriminant;
 
 use crate::{
     mdb::{
-        debug::MdbItemDebug, utils::get_member_type, Comparison, ComparisonOperator,
-        MissionDatabase, NamedItem, ParameterInstanceRef,
+        debug::MdbItemDebug, utils::get_member_type, BooleanExpression, Comparison,
+        ComparisonOperator, ConditionRight, MissionDatabase, NamedItem, ParameterInstanceRef,
     },
     value::Value, proc::ProcError
 };
@@ -14,8 +14,6 @@ pub(crate) trait CriteriaEvaluator {
     fn evaluate(&self, ctx: &ProcCtx) -> MatchResult;
 }
 
-// will be used for BooleanExpression match criteria
-#[allow(dead_code)]
 struct OrEvaluator {
     list: Vec<Box<dyn CriteriaEvaluator>>,
 }
@@ -47,6 +45,74 @@ struct RefValueEvaluator {
 struct RefEqualValueEvaluator {
     left: ParameterInstanceRef,
     right: Value,
+}
+
+/// evaluator used when the criteria could not be built; it always returns ERROR
+pub(crate) struct ErrorEvaluator;
+
+impl CriteriaEvaluator for ErrorEvaluator {
+    fn evaluate(&self, _ctx: &ProcCtx) -> MatchResult {
+        MatchResult::ERROR
+    }
+}
+
+//comparison between two parameter values
+struct RefRefEvaluator {
+    left: ParameterInstanceRef,
+    right: ParameterInstanceRef,
+    operator: ComparisonOperator,
+}
+
+impl CriteriaEvaluator for RefRefEvaluator {
+    fn evaluate(&self, ctx: &ProcCtx) -> MatchResult {
+        match (ctx.get_param_value(&self.left), ctx.get_param_value(&self.right)) {
+            (Some(left), Some(right)) => {
+                if let ComparisonOperator::Equality = self.operator {
+                    compare_equal(left, right)
+                } else if let ComparisonOperator::Inequality = self.operator {
+                    match compare_equal(left, right) {
+                        MatchResult::OK => MatchResult::NOK,
+                        MatchResult::NOK => MatchResult::OK,
+                        r => r,
+                    }
+                } else {
+                    compare(self.operator, left, right)
+                }
+            }
+            _ => MatchResult::UNDEF,
+        }
+    }
+}
+
+pub(crate) fn from_boolean_expression(
+    mdb: &MissionDatabase,
+    bexpr: &BooleanExpression,
+) -> Result<Box<dyn CriteriaEvaluator>> {
+    match bexpr {
+        BooleanExpression::Condition(cond) => match &cond.right {
+            ConditionRight::Value(v) => {
+                let comp = Comparison {
+                    param_instance: cond.left.clone(),
+                    comparison_operator: cond.operator,
+                    value: v.clone(),
+                };
+                from_comparison(mdb, &comp)
+            }
+            ConditionRight::ParameterRef(pref) => Ok(Box::new(RefRefEvaluator {
+                left: cond.left.clone(),
+                right: pref.clone(),
+                operator: cond.operator,
+            })),
+        },
+        BooleanExpression::And(list) => {
+            let list = list.iter().map(|e| from_boolean_expression(mdb, e)).collect::<Result<_>>()?;
+            Ok(Box::new(AndEvaluator { list }))
+        }
+        BooleanExpression::Or(list) => {
+            let list = list.iter().map(|e| from_boolean_expression(mdb, e)).collect::<Result<_>>()?;
+            Ok(Box::new(OrEvaluator { list }))
+        }
+    }
 }
 
 pub(crate) fn from_comparison(

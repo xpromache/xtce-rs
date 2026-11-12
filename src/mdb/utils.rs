@@ -128,8 +128,11 @@ pub(crate) fn get_member_value<'a>(
             }
         }
         if pe.index.len() > 0 {
-            // array values are not yet supported
-            return None;
+            if let Value::Array(arrv) = val {
+                val = arrv.get(&pe.index)?;
+            } else {
+                return None;
+            }
         }
     }
 

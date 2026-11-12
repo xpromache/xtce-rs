@@ -5,21 +5,39 @@ use smallvec::SmallVec;
 use crate::{bitbuffer::ByteOrder, value::Value};
 
 use super::{
-    DataTypeIdx, DynamicValueType, IntegerValue, MissionDatabase, NameDescription, NameIdx,
-    NamedItem, UnitType, Result, MdbError,
+    DataTypeIdx, DynamicValueType, IntegerValue, MatchCriteriaIdx, MissionDatabase,
+    NameDescription, NameIdx, NamedItem, ParameterInstanceRef, UnitType, Result, MdbError,
 };
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DataType {
     pub ndescr: NameDescription,
     pub encoding: DataEncoding,
     pub type_data: TypeData,
     pub units: Vec<UnitType>,
+    /// default calibrator, used if none of the context calibrators match
     pub calibrator: Option<Calibrator>,
+    /// calibrators applied if their context matches; the first matching one is used
+    pub context_calibrators: Vec<ContextCalibrator>,
+    pub valid_range: Option<ValidRange>,
 }
 
-#[derive(Debug)]
+impl DataType {
+    pub fn new(ndescr: NameDescription, type_data: TypeData) -> DataType {
+        DataType {
+            ndescr,
+            encoding: DataEncoding::None,
+            type_data,
+            units: Vec::new(),
+            calibrator: None,
+            context_calibrators: Vec::new(),
+            valid_range: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum TypeData {
     Integer(IntegerDataType),
     Float(FloatDataType),
@@ -33,7 +51,7 @@ pub enum TypeData {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DataEncoding {
     None,
     Binary(BinaryDataEncoding),
@@ -44,12 +62,12 @@ pub enum DataEncoding {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BooleanDataEncoding {
     pub size_in_bits: BinarySize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FloatDataEncoding {
     pub size_in_bits: u8,
     pub encoding: FloatEncodingType,
@@ -77,7 +95,7 @@ pub enum FloatEncodingType {
     Milstd1750a,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum StringSize {
     ///
     /// fixed size in bits    
@@ -96,7 +114,7 @@ pub enum StringSize {
     Custom,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StringDataEncoding {
     pub size_in_bits: StringSize,
     pub box_size_in_bits: StringBoxSize,
@@ -104,7 +122,7 @@ pub struct StringDataEncoding {
     pub max_box_size_in_bytes: Option<u32>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum StringBoxSize {
     Undefined,
     Fixed(u32),
@@ -112,12 +130,12 @@ pub enum StringBoxSize {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BinaryDataEncoding {
     pub size_in_bits: BinarySize
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BinarySize {
     /// fixed size in bits
     Fixed(u32),
@@ -132,26 +150,221 @@ pub enum BinarySize {
 
 
 
-#[derive(Debug)]
-pub struct NumericAlarm {}
+/// A numeric range; all limits are optional
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NumericRange {
+    pub min_inclusive: Option<f64>,
+    pub min_exclusive: Option<f64>,
+    pub max_inclusive: Option<f64>,
+    pub max_exclusive: Option<f64>,
+}
 
-#[derive(Debug)]
-pub struct NumericContextAlarm {}
+impl NumericRange {
+    /// returns true if the value is within the range
+    pub fn contains(&self, v: f64) -> bool {
+        self.min_inclusive.map_or(true, |m| v >= m)
+            && self.min_exclusive.map_or(true, |m| v > m)
+            && self.max_inclusive.map_or(true, |m| v <= m)
+            && self.max_exclusive.map_or(true, |m| v < m)
+    }
+}
 
-#[derive(Debug)]
-pub struct EnumerationAlarm {}
+#[derive(Debug, Clone)]
+pub struct ValidRange {
+    pub range: NumericRange,
+    /// if true, the range applies to the engineering value, otherwise to the raw value
+    pub applies_to_calibrated: bool,
+}
 
-#[derive(Debug)]
-pub struct EnumerationContextAlarm {}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AlarmLevel {
+    Normal,
+    Watch,
+    Warning,
+    Distress,
+    Critical,
+    Severe,
+}
 
-#[derive(Debug)]
+/// Static alarm ranges: a value outside of the range triggers the corresponding alarm
+#[derive(Debug, Clone, Default)]
+pub struct AlarmRanges {
+    pub watch: Option<NumericRange>,
+    pub warning: Option<NumericRange>,
+    pub distress: Option<NumericRange>,
+    pub critical: Option<NumericRange>,
+    pub severe: Option<NumericRange>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NumericAlarm {
+    /// number of successive values that have to be out of limits before the alarm is triggered
+    pub min_violations: u32,
+    pub static_alarm_ranges: AlarmRanges,
+}
+
+#[derive(Debug, Clone)]
+pub struct NumericContextAlarm {
+    pub context: MatchCriteriaIdx,
+    pub alarm: NumericAlarm,
+}
+
+#[derive(Debug, Clone)]
+pub struct EnumerationAlarm {
+    pub min_violations: u32,
+    /// the alarm level for the labels not explicitly listed
+    pub default_level: AlarmLevel,
+    /// (label, level)
+    pub alarms: Vec<(String, AlarmLevel)>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EnumerationContextAlarm {
+    pub context: MatchCriteriaIdx,
+    pub alarm: EnumerationAlarm,
+}
+
+#[derive(Debug, Clone)]
 pub struct BinaryDataType {
     pub size_in_bits: u32,
 }
 
-#[derive(Debug)]
-pub enum Calibrator {}
+#[derive(Debug, Clone)]
+pub enum Calibrator {
+    /// polynomial calibrator; the coefficient at index i corresponds to x^i
+    Polynomial(Vec<f64>),
+    Spline(SplineCalibrator),
+    /// math operation in reverse polish notation
+    MathOperation(Vec<MathOpElement>),
+    /// calibrator not supported (e.g. Java expression); contains a description.
+    /// The parameters using it cannot be calibrated.
+    Unsupported(String),
+}
 
+#[derive(Debug, Clone)]
+pub struct ContextCalibrator {
+    pub context: MatchCriteriaIdx,
+    pub calibrator: Calibrator,
+}
+
+#[derive(Debug, Clone)]
+pub struct SplineCalibrator {
+    /// the order and extrapolate are read from the XTCE but like in Yamcs,
+    /// the calibration is always linear with extrapolation outside the points
+    pub order: u32,
+    pub extrapolate: bool,
+    /// sorted by raw value, at least two points
+    pub points: Vec<SplinePoint>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SplinePoint {
+    pub raw: f64,
+    pub calibrated: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MathOpElement {
+    Value(f64),
+    ThisParameter,
+    Operator(MathOperator),
+}
+
+/// Operators supported in math operations (same set as Yamcs)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MathOperator {
+    Plus,
+    Minus,
+    Star,
+    Div,
+    Modulo,
+    Pow,
+    RevPow,
+    Ln,
+    Log,
+    Exp,
+    Inv,
+    Fact,
+    Tan,
+    Cos,
+    Sin,
+    Atan,
+    Acos,
+    Asin,
+    Tanh,
+    Cosh,
+    Sinh,
+    Atanh,
+    Acosh,
+    Asinh,
+    Abs,
+    LeftShift,
+    RightShift,
+    BitwiseOr,
+    BitwiseAnd,
+    Swap,
+    Drop,
+    Dup,
+    Over,
+}
+
+impl MathOperator {
+    pub fn from_xtce_name(s: &str) -> Option<MathOperator> {
+        use MathOperator::*;
+        Some(match s {
+            "+" => Plus,
+            "-" => Minus,
+            "*" => Star,
+            "/" => Div,
+            "%" => Modulo,
+            "^" => Pow,
+            "y^x" => RevPow,
+            "ln" => Ln,
+            "log" => Log,
+            "e^x" => Exp,
+            "1/x" => Inv,
+            "x!" => Fact,
+            "tan" => Tan,
+            "cos" => Cos,
+            "sin" => Sin,
+            "atan" => Atan,
+            "acos" => Acos,
+            "asin" => Asin,
+            "tanh" => Tanh,
+            "cosh" => Cosh,
+            "sinh" => Sinh,
+            "atanh" => Atanh,
+            "acosh" => Acosh,
+            "asinh" => Asinh,
+            "abs" => Abs,
+            "<<" => LeftShift,
+            ">>" => RightShift,
+            "|" => BitwiseOr,
+            "&" => BitwiseAnd,
+            "swap" => Swap,
+            "drop" => Drop,
+            "dup" => Dup,
+            "over" => Over,
+            _ => return None,
+        })
+    }
+
+    /// returns (number of stack elements consumed, number of stack elements produced)
+    pub fn stack_effect(&self) -> (usize, usize) {
+        use MathOperator::*;
+        match self {
+            Swap => (2, 2),
+            Drop => (1, 0),
+            Dup => (1, 2),
+            Over => (2, 3),
+            Plus | Minus | Star | Div | Modulo | Pow | RevPow | LeftShift | RightShift
+            | BitwiseOr | BitwiseAnd => (2, 1),
+            _ => (1, 1),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct ValueEnumeration {
     pub value: i64,
     /// If max value is given, the label maps to a range where value is less than or equal to maxValue.
@@ -277,24 +490,51 @@ fn parse_eng_enumerated(value: &str, edt: &EnumeratedDataType) -> Result<Value> 
         .ok_or_else(|| MdbError::InvalidValue(format!("Value {} not valid for type", value)))
 }
 
-#[derive(Debug)]
-pub struct AbsoluteTimeDataType {}
+#[derive(Debug, Clone)]
+pub struct AbsoluteTimeDataType {
+    /// the raw value is multiplied by scale and the offset is added to obtain the number of seconds since the reference
+    pub scale: f64,
+    pub offset: f64,
+    pub reference: TimeReference,
+}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub enum TimeReference {
+    None,
+    Epoch(TimeEpoch),
+    /// the time is an offset from the value of another (absolute time) parameter
+    OffsetFrom(ParameterInstanceRef),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TimeEpoch {
+    /// 1958-01-01T00:00:00 TAI
+    Tai,
+    /// 2000-01-01T11:58:55.816 UTC
+    J2000,
+    /// 1970-01-01T00:00:00 UTC
+    Unix,
+    /// 1980-01-06T00:00:00 UTC
+    Gps,
+    /// an explicit date or date time (xs:date or xs:dateTime)
+    DateTime(String),
+}
+
+#[derive(Debug, Clone)]
 pub struct EnumeratedDataType {
     pub enumeration: Vec<ValueEnumeration>,
     pub default_alarm: Option<EnumerationAlarm>,
     pub context_alarm: Vec<EnumerationContextAlarm>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FloatDataType {
     pub size_in_bits: u32,
     pub default_alarm: Option<NumericAlarm>,
     pub context_alarm: Vec<NumericContextAlarm>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IntegerDataType {
     pub size_in_bits: u32,
     pub signed: bool,
@@ -302,21 +542,21 @@ pub struct IntegerDataType {
     pub context_alarm: Vec<NumericContextAlarm>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StringDataType {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BooleanDataType {
     pub one_string_value: String,
     pub zero_string_value: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AggregateDataType {
     pub members: Vec<Member>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Member {
     pub ndescr: NameDescription,
     pub dtype: DataTypeIdx,
@@ -328,9 +568,12 @@ impl NamedItem for Member {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ArrayDataType {
     pub dtype: DataTypeIdx,
+    pub number_of_dimensions: usize,
+    /// the size of each dimension; empty if the sizes are not specified in the type
+    /// (and have to be specified in the ArrayParameterRefEntry)
     pub dim: Vec<IntegerValue>,
 }
 

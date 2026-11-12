@@ -52,7 +52,16 @@ pub(super) fn read_name_description(ctx: &ParseContext) -> NameDescription {
 
     for cnode in node.children() {
         match cnode.tag_name().name() {
-            "LongDescription" => nd.long_description = node.text().map(|s| s.to_string()),
+            "LongDescription" => nd.long_description = cnode.text().map(|s| s.trim().to_string()),
+            "AliasSet" => {
+                for anode in children(&cnode) {
+                    if let (Some(namespace), Some(alias)) =
+                        (anode.attribute("nameSpace"), anode.attribute("alias"))
+                    {
+                        nd.aliases.push(Alias { namespace: namespace.to_owned(), alias: alias.to_owned() });
+                    }
+                }
+            }
             _ => {}
         }
     }
