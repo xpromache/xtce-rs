@@ -21,6 +21,7 @@ pub type DataTypeIdx = Index;
 pub type ParameterIdx = Index;
 pub type ContainerIdx = Index;
 pub type MatchCriteriaIdx = Index;
+pub type AlgorithmIdx = Index;
 
 use thiserror::Error;
 
@@ -66,6 +67,28 @@ pub struct MissionDatabase {
 
     /// namespace -> alias -> parameter
     parameter_aliases: HashMap<String, HashMap<String, ParameterIdx>>,
+
+    pub algorithms: Vec<MathAlgorithm>,
+
+    /// number of past values that have to be kept for the parameters referenced with negative instances
+    pub history_depth: HashMap<ParameterIdx, usize>,
+}
+
+/// Math algorithm: computes the output parameter from the input parameters using an expression in reverse polish notation
+pub struct MathAlgorithm {
+    pub ndescr: NameDescription,
+    pub output: ParameterIdx,
+    pub inputs: Vec<ParameterInstanceRef>,
+    /// the expression; the parameters are referenced as MathOpElement::Input(idx) where idx is the index in the inputs
+    pub expression: Vec<types::MathOpElement>,
+    /// the algorithm is executed when any of these parameters is updated; if empty, when any input is updated
+    pub triggers: Vec<ParameterIdx>,
+}
+
+impl NamedItem for MathAlgorithm {
+    fn name_descr(&self) -> &NameDescription {
+        &self.ndescr
+    }
 }
 
 pub trait NamedItem {
@@ -470,6 +493,7 @@ pub struct SpaceSystem {
     pub parameters: HashMap<NameIdx, ParameterIdx>,
     pub parameter_types: HashMap<NameIdx, DataTypeIdx>,
     pub containers: HashMap<NameIdx, ContainerIdx>,
+    pub algorithms: HashMap<NameIdx, AlgorithmIdx>,
 }
 
 impl SpaceSystem {
@@ -481,6 +505,7 @@ impl SpaceSystem {
             parameters: HashMap::new(),
             parameter_types: HashMap::new(),
             containers: HashMap::new(),
+            algorithms: HashMap::new(),
         }
     }
 
@@ -502,6 +527,8 @@ impl MissionDatabase {
             child_containers: HashMap::new(),
             decoder_defs: Vec::new(),
             parameter_aliases: HashMap::new(),
+            algorithms: Vec::new(),
+            history_depth: HashMap::new(),
         };
         //create the root space system - it has "" name and an empty qualified name
         let ss_idx = SpaceSystemIdx::new(0);
@@ -589,6 +616,19 @@ impl MissionDatabase {
         }
 
         idx
+    }
+
+    pub fn add_algorithm(&mut self, space_system: &QualifiedName, algo: MathAlgorithm) -> AlgorithmIdx {
+        let name = algo.name();
+        let idx = AlgorithmIdx::new(self.algorithms.len());
+        self.algorithms.push(algo);
+        let ss = self.get_space_system_mut(space_system).unwrap();
+        ss.algorithms.insert(name, idx);
+        idx
+    }
+
+    pub fn get_algorithm_idx(&self, space_system: &QualifiedName, name: NameIdx) -> Option<AlgorithmIdx> {
+        self.get_space_system(space_system).and_then(|ss| ss.algorithms.get(&name)).copied()
     }
 
     pub fn add_match_criteria(&mut self, macth_criteria: MatchCriteria) -> MatchCriteriaIdx {

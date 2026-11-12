@@ -261,7 +261,9 @@ fn read_reference_time(
                 "J2000" => TimeEpoch::J2000,
                 "UNIX" | "POSIX" => TimeEpoch::Unix,
                 "GPS" => TimeEpoch::Gps,
-                s => TimeEpoch::DateTime(s.to_owned()),
+                s => TimeEpoch::DateTime(crate::time::parse(s).ok_or_else(|| {
+                    get_parse_error(format!("cannot parse epoch date '{}'", s), &cnode)
+                })?),
             };
             Ok(TimeReference::Epoch(epoch))
         }
@@ -339,10 +341,23 @@ fn read_spline_calibrator(node: &Node) -> Result<Calibrator> {
 }
 
 fn read_math_operation_calibrator(node: &Node) -> Result<Calibrator> {
+    let elements = read_math_operation(node, &mut |cnode| {
+        Err(get_parse_error("Parameter references are not supported in MathOperationCalibrator", cnode))
+    })?;
+    Ok(Calibrator::MathOperation(elements))
+}
+
+/// reads the elements of a math operation in reverse polish notation and verifies that the expression is valid.
+/// The ParameterInstanceRefOperand elements are converted using the given function; TriggerSet elements are skipped.
+pub(super) fn read_math_operation(
+    node: &Node,
+    param_operand: &mut dyn FnMut(&Node) -> Result<MathOpElement>,
+) -> Result<Vec<MathOpElement>> {
     let mut elements = Vec::new();
     let mut depth: usize = 0;
     for cnode in children(node) {
         let el = match cnode.tag_name().name() {
+            "TriggerSet" => continue,
             "ValueOperand" => MathOpElement::Value(read_mandatory_text::<f64>(&cnode)?),
             "ThisParameterOperand" => MathOpElement::ThisParameter,
             "Operator" => {
@@ -352,12 +367,7 @@ fn read_math_operation_calibrator(node: &Node) -> Result<Calibrator> {
                 })?;
                 MathOpElement::Operator(op)
             }
-            "ParameterInstanceRefOperand" => {
-                return Err(get_parse_error(
-                    "Parameter references are not supported in MathOperationCalibrator",
-                    &cnode,
-                ))
-            }
+            "ParameterInstanceRefOperand" => param_operand(&cnode)?,
             _ => return Err(unsupported("math operation element", &cnode)),
         };
         // check that the expression is valid
@@ -382,7 +392,7 @@ fn read_math_operation_calibrator(node: &Node) -> Result<Calibrator> {
             node,
         ));
     }
-    Ok(Calibrator::MathOperation(elements))
+    Ok(elements)
 }
 
 fn read_context_calibrator_list(
@@ -573,7 +583,7 @@ fn read_member(mdb: &mut MissionDatabase, ctx: &ParseContext, node: &Node) -> Re
     let dtype = resolve_ref(mdb, ctx, &ptype_str, NameReferenceType::ParameterType)?;
     let name_str = read_mandatory_name(node)?;
     let name = mdb.get_or_intern(name_str);
-    let ctx1 = ParseContext { name_tree: ctx.name_tree, node: *node, path: ctx.path, name, rtype: ctx.rtype };
+    let ctx1 = ParseContext { name_tree: ctx.name_tree, node: *node, path: ctx.path, name, rtype: ctx.rtype, history: ctx.history };
     let ndescr = read_name_description(&ctx1);
 
     Ok(Member { ndescr, dtype })

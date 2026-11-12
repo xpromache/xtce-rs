@@ -1,3 +1,4 @@
+mod algorithms;
 mod containers;
 mod encodings;
 mod nametree;
@@ -14,6 +15,7 @@ use utils::*;
 
 //use crate::parser::types::*;
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -70,6 +72,8 @@ struct ParseContext<'a> {
     path: &'a QualifiedName,
     name: NameIdx,
     rtype: NameReferenceType,
+    /// maximum number of past instances referenced for each parameter
+    history: &'a RefCell<HashMap<ParameterIdx, usize>>,
 }
 #[derive(Debug)]
 pub struct Reference {
@@ -157,6 +161,7 @@ pub fn parse_files(paths: &[&Path]) -> Result<MissionDatabase> {
 
 /*************** details **************/
 fn build_mdb(mdb: &mut MissionDatabase, name_tree: &NameTree, doc: &Vec<Document>) -> Result<()> {
+    let history = RefCell::new(HashMap::new());
     let mut unresolved: Vec<(ParseContext, Reference)> = vec![];
 
     for (path, ssn) in &name_tree.systems {
@@ -172,6 +177,7 @@ fn build_mdb(mdb: &mut MissionDatabase, name_tree: &NameTree, doc: &Vec<Document
                     name: *name,
                     node,
                     rtype: ntype,
+                    history: &history,
                 };
                 add_item(mdb, &ctx, &mut unresolved)?;
             }
@@ -195,6 +201,8 @@ fn build_mdb(mdb: &mut MissionDatabase, name_tree: &NameTree, doc: &Vec<Document
         }
         unresolved = unresolved1;
     }
+    drop(unresolved);
+    mdb.history_depth = history.into_inner();
     Ok(())
 }
 
@@ -207,13 +215,7 @@ fn add_item<'a>(
         NameReferenceType::ParameterType => add_parameter_type(mdb, ctx),
         NameReferenceType::Parameter => add_parameter(mdb, ctx),
         NameReferenceType::SequenceContainer => add_container(mdb, ctx),
-        NameReferenceType::Algorithm => {
-            log::debug!(
-                "algorithm {} not loaded (algorithms are not yet supported)",
-                mdb.name2str(ctx.name)
-            );
-            Ok(())
-        }
+        NameReferenceType::Algorithm => algorithms::add_algorithm(mdb, ctx),
     };
 
     if let Err(err) = r {

@@ -40,14 +40,15 @@ pub(crate) fn parse_aggregate_path_element(
     }
     let mut index = SmallVec::new();
 
+    // the name is interned because the aggregate type defining the member may not have been loaded yet
     let name = if let Some(x) = name_str {
-        if !name_db.contains(x) {
+        if x.contains(|c: char| c == ']' || c.is_whitespace()) {
             return Err(MdbError::InvalidValue(format!(
-                "Cannot parse aggregate member path '{}'; '{}' is not known in the name database",
+                "Cannot parse aggregate member path '{}': invalid member name '{}'",
                 path, x
             )));
         }
-        name_db.get(x)
+        Some(name_db.get_or_intern(x))
     } else {
         None
     };
@@ -161,8 +162,9 @@ mod tests {
         assert_eq!("abcd", mdb.name2str(r.name.unwrap()));
         assert_eq!(SmallVec::from_buf([1, 2, 3, 10, 1032]), r.index);
 
-        let r = parse_aggregate_path_element(name_db, "unknown_name[1]");
-        assert!(r.is_err());
+        // unknown names are interned (the member may be defined in a type not yet loaded)
+        let r = parse_aggregate_path_element(name_db, "unknown_name[1]").unwrap();
+        assert_eq!("unknown_name", mdb.name2str(r.name.unwrap()));
 
         let r = parse_aggregate_path_element(name_db, "abcd[a1]");
         assert!(r.is_err());

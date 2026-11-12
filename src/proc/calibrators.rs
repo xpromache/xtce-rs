@@ -10,7 +10,7 @@ pub fn calibrate(cal: &Calibrator, x: f64) -> Result<f64> {
     match cal {
         Calibrator::Polynomial(coefficients) => Ok(polynomial(coefficients, x)),
         Calibrator::Spline(spline) => Ok(spline_calibrate(spline, x)),
-        Calibrator::MathOperation(elements) => math_operation(elements, x),
+        Calibrator::MathOperation(elements) => math_operation(elements, x, &[]),
         Calibrator::Unsupported(name) => {
             Err(ProcError::DecodingError(format!("unsupported calibrator {}", name)))
         }
@@ -46,8 +46,9 @@ fn spline_calibrate(spline: &SplineCalibrator, x: f64) -> f64 {
     ((b1 - b2) * x + (a1 * b2 - b1 * a2)) / (a1 - a2)
 }
 
-/// evaluates the math operation expressed in reverse polish notation
-fn math_operation(elements: &[MathOpElement], x: f64) -> Result<f64> {
+/// evaluates the math operation expressed in reverse polish notation.
+/// x is the value of ThisParameter and inputs the values of the algorithm inputs
+pub fn math_operation(elements: &[MathOpElement], x: f64, inputs: &[f64]) -> Result<f64> {
     let mut stack: Vec<f64> = Vec::with_capacity(8);
     let underflow = || ProcError::InvalidMdb("invalid math operation: stack underflow".to_owned());
 
@@ -55,6 +56,9 @@ fn math_operation(elements: &[MathOpElement], x: f64) -> Result<f64> {
         match el {
             MathOpElement::Value(v) => stack.push(*v),
             MathOpElement::ThisParameter => stack.push(x),
+            MathOpElement::Input(idx) => stack.push(*inputs.get(*idx).ok_or_else(|| {
+                ProcError::InvalidMdb(format!("invalid math operation: no input {}", idx))
+            })?),
             MathOpElement::Operator(op) => {
                 use MathOperator::*;
                 match op {

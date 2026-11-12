@@ -238,7 +238,7 @@ fn eng_value_types() {
     let r = process(&mdb, &packet, root).unwrap();
     // float calibrated -> double, integer calibrated -> rounded unsigned integer
     assert_eq!(&Value::Double(10.0), r.eng(2));
-    assert_eq!(&Value::Uint64(40), r.raw(2));
+    assert_eq!(Some(&Value::Uint64(40)), r.raw(2));
     assert_eq!(&Value::Uint64(3), r.eng(4));
     assert_eq!(&Value::Int64(-2), r.eng(8));
 }

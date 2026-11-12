@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Test file for: Yamcs value types, absolute times, instances, math algorithms, validity and alarms -->
+<SpaceSystem name="P2" xmlns="http://www.omg.org/spec/XTCE/20180204">
+	<TelemetryMetaData>
+		<ParameterTypeSet>
+			<IntegerParameterType name="uint8" signed="false">
+				<IntegerDataEncoding sizeInBits="8" />
+			</IntegerParameterType>
+			<!-- 32 bits unsigned type with 64 bits encoding: the engineering value is truncated to 32 bits -->
+			<IntegerParameterType name="u32_from_u64" signed="false" sizeInBits="32">
+				<IntegerDataEncoding sizeInBits="64" />
+			</IntegerParameterType>
+			<!-- 32 bits signed type with unsigned encoding: 0xFFFFFFFF becomes -1 -->
+			<IntegerParameterType name="s32_from_u32" signed="true" sizeInBits="32">
+				<IntegerDataEncoding sizeInBits="32" />
+			</IntegerParameterType>
+			<!-- calibrated signed integer: Java Math.round (ties towards positive infinity) -->
+			<IntegerParameterType name="round_t" signed="true">
+				<IntegerDataEncoding sizeInBits="8" encoding="twosComplement">
+					<DefaultCalibrator>
+						<PolynomialCalibrator>
+							<Term exponent="1" coefficient="0.5" />
+						</PolynomialCalibrator>
+					</DefaultCalibrator>
+				</IntegerDataEncoding>
+			</IntegerParameterType>
+			<!-- calibrated unsigned integer: negative values become 0 -->
+			<IntegerParameterType name="uround_t" signed="false">
+				<IntegerDataEncoding sizeInBits="8">
+					<DefaultCalibrator>
+						<PolynomialCalibrator>
+							<Term exponent="0" coefficient="-10" />
+							<Term exponent="1" coefficient="1" />
+						</PolynomialCalibrator>
+					</DefaultCalibrator>
+				</IntegerDataEncoding>
+			</IntegerParameterType>
+			<!-- 32 bits float: the value is rounded to single precision -->
+			<FloatParameterType name="float32_t" sizeInBits="32">
+				<IntegerDataEncoding sizeInBits="8">
+					<DefaultCalibrator>
+						<PolynomialCalibrator>
+							<Term exponent="1" coefficient="0.1" />
+						</PolynomialCalibrator>
+					</DefaultCalibrator>
+				</IntegerDataEncoding>
+			</FloatParameterType>
+			<FloatParameterType name="float64_t" sizeInBits="64">
+				<IntegerDataEncoding sizeInBits="8">
+					<DefaultCalibrator>
+						<PolynomialCalibrator>
+							<Term exponent="1" coefficient="0.1" />
+						</PolynomialCalibrator>
+					</DefaultCalibrator>
+				</IntegerDataEncoding>
+				<DefaultAlarm>
+					<StaticAlarmRanges>
+						<WatchRange minInclusive="2" maxInclusive="8" />
+						<WarningRange minInclusive="1" maxInclusive="9" />
+						<CriticalRange minExclusive="0.5" maxExclusive="20" />
+					</StaticAlarmRanges>
+				</DefaultAlarm>
+				<ContextAlarmList>
+					<ContextAlarm>
+						<StaticAlarmRanges>
+							<WarningRange maxInclusive="3" />
+						</StaticAlarmRanges>
+						<ContextMatch>
+							<Comparison parameterRef="state" value="SAFE" />
+						</ContextMatch>
+					</ContextAlarm>
+				</ContextAlarmList>
+				<ValidRange minInclusive="0" maxInclusive="200" validRangeAppliesToCalibrated="false" />
+			</FloatParameterType>
+			<EnumeratedParameterType name="state_t">
+				<IntegerDataEncoding sizeInBits="8" />
+				<EnumerationList>
+					<Enumeration value="0" label="NOMINAL" />
+					<Enumeration value="1" label="SAFE" />
+					<Enumeration value="2" label="FAILED" />
+				</EnumerationList>
+				<DefaultAlarm defaultAlarmLevel="watch">
+					<EnumerationAlarmList>
+						<EnumerationAlarm enumerationLabel="NOMINAL" alarmLevel="normal" />
+						<EnumerationAlarm enumerationLabel="FAILED" alarmLevel="critical" />
+					</EnumerationAlarmList>
+				</DefaultAlarm>
+			</EnumeratedParameterType>
+			<AbsoluteTimeParameterType name="gps_time_t">
+				<Encoding scale="0.001" offset="1">
+					<IntegerDataEncoding sizeInBits="32" />
+				</Encoding>
+				<ReferenceTime>
+					<Epoch>GPS</Epoch>
+				</ReferenceTime>
+			</AbsoluteTimeParameterType>
+			<AbsoluteTimeParameterType name="unix_time_t">
+				<Encoding>
+					<IntegerDataEncoding sizeInBits="32" />
+				</Encoding>
+				<ReferenceTime>
+					<Epoch>UNIX</Epoch>
+				</ReferenceTime>
+			</AbsoluteTimeParameterType>
+			<AbsoluteTimeParameterType name="date_time_t">
+				<Encoding units="seconds">
+					<FloatDataEncoding sizeInBits="32" />
+				</Encoding>
+				<ReferenceTime>
+					<Epoch>2020-01-01T00:00:00Z</Epoch>
+				</ReferenceTime>
+			</AbsoluteTimeParameterType>
+			<AbsoluteTimeParameterType name="rel_time_t">
+				<Encoding scale="0.5">
+					<IntegerDataEncoding sizeInBits="8" />
+				</Encoding>
+				<ReferenceTime>
+					<OffsetFrom parameterRef="t_unix" />
+				</ReferenceTime>
+			</AbsoluteTimeParameterType>
+			<FloatParameterType name="double_t" sizeInBits="64" />
+			<IntegerParameterType name="int_t" signed="true" />
+		</ParameterTypeSet>
+		<ParameterSet>
+			<Parameter name="pkt_id" parameterTypeRef="uint8" />
+			<Parameter name="u32" parameterTypeRef="u32_from_u64" />
+			<Parameter name="s32" parameterTypeRef="s32_from_u32" />
+			<Parameter name="r_pos" parameterTypeRef="round_t" />
+			<Parameter name="r_neg" parameterTypeRef="round_t" />
+			<Parameter name="ur" parameterTypeRef="uround_t" />
+			<Parameter name="f32" parameterTypeRef="float32_t" />
+			<Parameter name="t_gps" parameterTypeRef="gps_time_t" />
+			<Parameter name="t_unix" parameterTypeRef="unix_time_t" />
+			<Parameter name="t_date" parameterTypeRef="date_time_t" />
+			<Parameter name="t_rel" parameterTypeRef="rel_time_t" />
+			<Parameter name="state" parameterTypeRef="state_t" />
+			<Parameter name="volt" parameterTypeRef="float64_t" />
+			<Parameter name="counter" parameterTypeRef="uint8" />
+			<Parameter name="counter_delta" parameterTypeRef="int_t" />
+			<Parameter name="sum" parameterTypeRef="double_t" />
+			<Parameter name="sum_x2" parameterTypeRef="double_t" />
+			<Parameter name="volt_prev" parameterTypeRef="uint8" />
+		</ParameterSet>
+		<ContainerSet>
+			<SequenceContainer name="root" abstract="true">
+				<EntryList>
+					<ParameterRefEntry parameterRef="pkt_id" />
+				</EntryList>
+			</SequenceContainer>
+			<SequenceContainer name="types">
+				<EntryList>
+					<ParameterRefEntry parameterRef="u32" />
+					<ParameterRefEntry parameterRef="s32" />
+					<ParameterRefEntry parameterRef="r_pos" />
+					<ParameterRefEntry parameterRef="r_neg" />
+					<ParameterRefEntry parameterRef="ur" />
+					<ParameterRefEntry parameterRef="f32" />
+				</EntryList>
+				<BaseContainer containerRef="root">
+					<RestrictionCriteria>
+						<Comparison parameterRef="pkt_id" value="1" />
+					</RestrictionCriteria>
+				</BaseContainer>
+			</SequenceContainer>
+			<SequenceContainer name="times">
+				<EntryList>
+					<ParameterRefEntry parameterRef="t_gps" />
+					<ParameterRefEntry parameterRef="t_unix" />
+					<ParameterRefEntry parameterRef="t_date" />
+					<ParameterRefEntry parameterRef="t_rel" />
+				</EntryList>
+				<BaseContainer containerRef="root">
+					<RestrictionCriteria>
+						<Comparison parameterRef="pkt_id" value="2" />
+					</RestrictionCriteria>
+				</BaseContainer>
+			</SequenceContainer>
+			<SequenceContainer name="monitoring">
+				<EntryList>
+					<ParameterRefEntry parameterRef="state" />
+					<ParameterRefEntry parameterRef="volt" />
+					<ParameterRefEntry parameterRef="counter" />
+				</EntryList>
+				<BaseContainer containerRef="root">
+					<RestrictionCriteria>
+						<Comparison parameterRef="pkt_id" value="3" />
+					</RestrictionCriteria>
+				</BaseContainer>
+			</SequenceContainer>
+			<!-- the entry is included only if the counter changed since the previous packet -->
+			<SequenceContainer name="history">
+				<EntryList>
+					<ParameterRefEntry parameterRef="counter" />
+					<ParameterRefEntry parameterRef="volt_prev">
+						<IncludeCondition>
+							<Comparison parameterRef="counter" instance="-1" value="0" comparisonOperator="!=" />
+						</IncludeCondition>
+					</ParameterRefEntry>
+				</EntryList>
+				<BaseContainer containerRef="root">
+					<RestrictionCriteria>
+						<Comparison parameterRef="pkt_id" value="4" />
+					</RestrictionCriteria>
+				</BaseContainer>
+			</SequenceContainer>
+		</ContainerSet>
+		<AlgorithmSet>
+			<!-- difference to the previous value; without trigger it runs when any input is updated -->
+			<MathAlgorithm name="delta">
+				<MathOperation outputParameterRef="counter_delta">
+					<ParameterInstanceRefOperand parameterRef="counter" />
+					<ParameterInstanceRefOperand parameterRef="counter" instance="-1" />
+					<Operator>-</Operator>
+				</MathOperation>
+			</MathAlgorithm>
+			<!-- defined before "sum" on purpose: it has to run after it -->
+			<MathAlgorithm name="double_sum">
+				<MathOperation outputParameterRef="sum_x2">
+					<ParameterInstanceRefOperand parameterRef="sum" />
+					<ValueOperand>2</ValueOperand>
+					<Operator>*</Operator>
+				</MathOperation>
+			</MathAlgorithm>
+			<MathAlgorithm name="sum">
+				<MathOperation outputParameterRef="sum">
+					<ParameterInstanceRefOperand parameterRef="volt" />
+					<ParameterInstanceRefOperand parameterRef="counter" useCalibratedValue="false" />
+					<Operator>+</Operator>
+					<TriggerSet>
+						<OnParameterUpdateTrigger parameterRef="volt" />
+					</TriggerSet>
+				</MathOperation>
+			</MathAlgorithm>
+		</AlgorithmSet>
+	</TelemetryMetaData>
+</SpaceSystem>

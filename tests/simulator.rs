@@ -41,7 +41,7 @@ fn flightdata() {
     let r = process(&mdb, &packet, root_container).unwrap();
     for pv in r {
         let para = mdb.get_parameter(pv.pidx);
-        println!("{}: {}/{}", mdb.name2str(para.ndescr.name), pv.raw_value, pv.eng_value)
+        println!("{}: {:?}/{}", mdb.name2str(para.ndescr.name), pv.raw_value, pv.eng_value)
     }
 }
 

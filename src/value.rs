@@ -7,18 +7,106 @@ use hex::ToHex;
 
 use crate::mdb::{MissionDatabase, NameIdx, NamedItem, ParameterIdx};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ParameterValue {
     pub pidx: ParameterIdx,
-    pub raw_value: Value,
+    /// the raw value; None for the parameters which do not have one (e.g. computed by algorithms)
+    pub raw_value: Option<Value>,
     pub eng_value: Value,
+    /// generation time (instant, see [crate::time]); INVALID_INSTANT if not known
+    pub generation_time: i64,
+    /// acquisition (reception) time (instant); INVALID_INSTANT if not known
+    pub acquisition_time: i64,
+    pub status: ParameterStatus,
+    /// result of the alarm checking; None if the parameter has no alarm defined
+    pub monitoring_result: Option<MonitoringResult>,
+    /// set if the value is outside an alarm range
+    pub range_condition: Option<RangeCondition>,
 }
 
+impl ParameterValue {
+    pub fn new(pidx: ParameterIdx, raw_value: Value, eng_value: Value) -> ParameterValue {
+        Self::with_raw(pidx, Some(raw_value), eng_value)
+    }
 
-/// Unlike the Java Yamcs, we do not support the 32 bits integers or floats.
-/// It simplifies the code and no extra space is consumed becuase the enum is taking 16 bytes anyway.
-/// Note that the integer parameter extraction will shrink the numbers to fit into the size in bits specified in the type
-#[derive(Debug, PartialEq)]
+    pub fn with_raw(pidx: ParameterIdx, raw_value: Option<Value>, eng_value: Value) -> ParameterValue {
+        ParameterValue {
+            pidx,
+            raw_value,
+            eng_value,
+            generation_time: crate::time::INVALID_INSTANT,
+            acquisition_time: crate::time::INVALID_INSTANT,
+            status: ParameterStatus::ACQUIRED,
+            monitoring_result: None,
+            range_condition: None,
+        }
+    }
+}
+
+/// Acquisition status as a bit field like in Yamcs; 0 means acquired.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ParameterStatus(pub u8);
+
+impl ParameterStatus {
+    pub const ACQUIRED: ParameterStatus = ParameterStatus(0);
+    /// the value is outside the valid range or could not be computed
+    pub const INVALID: ParameterStatus = ParameterStatus(1);
+    pub const NOT_RECEIVED: ParameterStatus = ParameterStatus(2);
+    pub const EXPIRED: ParameterStatus = ParameterStatus(4);
+
+    pub fn is_invalid(&self) -> bool {
+        self.0 & Self::INVALID.0 != 0
+    }
+
+    pub fn set_invalid(&mut self) {
+        self.0 |= Self::INVALID.0;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MonitoringResult {
+    InLimits,
+    Watch,
+    Warning,
+    Distress,
+    Critical,
+    Severe,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RangeCondition {
+    Low,
+    High,
+}
+
+/// The type of a value as in Yamcs.
+///
+/// The values are stored in 64 bits (see [Value]) but the conversions follow the Yamcs rules for the given type
+/// (e.g. a SINT32 engineering value is obtained with a 32 bits cast).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValueType {
+    Sint32,
+    Uint32,
+    Sint64,
+    Uint64,
+    Float,
+    Double,
+    Boolean,
+    String,
+    Binary,
+    Enumerated,
+    Timestamp,
+    Aggregate,
+    Array,
+}
+
+/// A parameter value.
+///
+/// Unlike the Java Yamcs, there are no separate variants for 32 bits integers or floats.
+/// It simplifies the code and no extra space is consumed because the enum is taking 16 bytes anyway.
+/// The Yamcs type of a value can be obtained from the data type (see `DataType::eng_value_type`)
+/// and the conversions reproduce the Yamcs results (e.g. a FLOAT value is rounded to 32 bits precision).
+#[derive(Debug, PartialEq, Clone)]
 pub enum Value {
     Int64(i64),
     Uint64(u64),
@@ -30,10 +118,12 @@ pub enum Value {
     Binary(Box<Vec<u8>>),
     Aggregate(Box<AggregateValue>),
     Array(Box<ArrayValue>),
+    /// instant: milliseconds since 1970-01-01T00:00:00 TAI (see [crate::time])
+    Timestamp(i64),
 }
 
 /// Multidimensional array stored in row-major order (the last index varies fastest)
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ArrayValue {
     /// size of each dimension
     pub dims: Vec<usize>,
@@ -58,13 +148,13 @@ impl ArrayValue {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct EnumeratedValue {
     pub key: i64,
     pub value: String,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct AggregateValue(pub HashMap<NameIdx, Value>);
 
 
@@ -123,6 +213,7 @@ impl std::fmt::Display for Value {
                 }
                 write!(f, "]")
             }
+            Value::Timestamp(t) => write!(f, "{}", crate::time::to_string(*t)),
         }        
     }
 }
@@ -214,9 +305,10 @@ impl std::fmt::Debug for ParameterValueDebug<'_> {
         write!(f, "{} ", mdb.name2str(mdb.get_parameter(pv.pidx).name()))?;
         f.write_str("eng_value: {")?;
         write_value(f, mdb, &pv.eng_value)?;
-        f.write_str("}, raw_value: {")?;
-
-        write_value(f, mdb, &pv.raw_value)?;
+        if let Some(raw) = &pv.raw_value {
+            f.write_str("}, raw_value: {")?;
+            write_value(f, mdb, raw)?;
+        }
         f.write_str("}")?;
 
         Ok(())
@@ -243,6 +335,7 @@ fn write_value(f: &mut Formatter<'_>, mdb: &MissionDatabase, v: &Value) -> fmt::
             }
             f.write_str("]")?;
         }
+        Value::Timestamp(t) => write!(f, "{}", crate::time::to_string(*t))?,
     }
 
     Ok(())

@@ -57,10 +57,11 @@ fn numeric_string_encoding() {
     let r = process(&mdb, &packet, root_container).unwrap();
 
     assert_eq!(2, r.len());
-    assert_eq!("100", r.raw(0).to_string());
+    assert_eq!("100", r.raw(0).unwrap().to_string());
     assert_eq!(100u64, r.eng(0).try_into().unwrap());
     
-    assert_eq!("-3.14", r.raw(1).to_string());
-    assert_eq!(-3.14, r.eng(1).try_into().unwrap());
+    assert_eq!("-3.14", r.raw(1).unwrap().to_string());
+    // the float type has the default size of 32 bits so the value is a Yamcs FLOAT
+    assert_eq!(-3.14f32 as f64, r.eng(1).try_into().unwrap());
 }
 

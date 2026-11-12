@@ -3,15 +3,15 @@ use std::collections::HashMap;
 use crate::{
     mdb::{
         types::{
-            AggregateDataType, ArrayDataType, Calibrator, DataEncoding, DataType,
-            EnumeratedDataType, TypeData,
+            AbsoluteTimeDataType, AggregateDataType, ArrayDataType, Calibrator, DataEncoding,
+            DataType, EnumeratedDataType, TimeEpoch, TimeReference, TypeData,
         },
         IntegerValue, NameIdx, NamedItem,
     },
     proc::criteria_evaluator::MatchResult,
     value::{
         AggregateValue, ArrayValue, ContainerPosition, ContainerPositionDetails, EnumeratedValue,
-        Value,
+        Value, ValueType,
     },
 };
 
@@ -161,20 +161,53 @@ fn apply_calibrator(rawv: &Value, dtype: &DataType, ctx: &ProcCtx) -> Result<Opt
     let y = calibrators::calibrate(cal, x)?;
 
     // conversion to the engineering type like in Yamcs (rounding for integers)
-    let v = match &dtype.type_data {
-        TypeData::Integer(idt) => {
-            let bitsize = idt.size_in_bits as usize;
-            if idt.signed {
-                Value::int_value(bitsize, y.round() as i64)
-            } else if y >= 0.0 {
-                Value::uint_value(bitsize, y.round() as u64)
+    let vt = dtype.eng_value_type();
+    let v = match vt {
+        ValueType::Sint32 | ValueType::Sint64 => narrow_int(vt, java_round(y)),
+        ValueType::Uint32 | ValueType::Uint64 => {
+            if y < 0.0 {
+                narrow_int(vt, 0)
             } else {
-                Value::uint_value(bitsize, 0)
+                narrow_int(vt, java_round(y))
             }
         }
-        _ => Value::Double(y),
+        _ => narrow_float(vt, y),
     };
     Ok(Some(v))
+}
+
+/// Java Math.round: rounds to the closest integer, the ties going towards positive infinity.
+/// The result is saturated to the i64 range and NaN gives 0.
+pub(crate) fn java_round(y: f64) -> i64 {
+    if y - y.floor() == 0.5 {
+        y.ceil() as i64
+    } else {
+        y.round() as i64
+    }
+}
+
+/// converts a (Java long) integer to the given integer value type using a Java cast (truncation of the higher bits).
+/// For the non-integer types the value is returned unchanged.
+pub(crate) fn narrow_int(vt: ValueType, x: i64) -> Value {
+    match vt {
+        ValueType::Sint32 => Value::Int64(x as i32 as i64),
+        ValueType::Uint32 => Value::Uint64(x as u32 as u64),
+        ValueType::Sint64 => Value::Int64(x),
+        ValueType::Uint64 => Value::Uint64(x as u64),
+        ValueType::Float => Value::Double(x as f32 as f64),
+        ValueType::Double => Value::Double(x as f64),
+        _ => Value::Int64(x),
+    }
+}
+
+/// converts the floating point value to the given value type (FLOAT values are rounded to 32 bits precision,
+/// integers are obtained with a Java (long) cast followed by narrowing)
+pub(crate) fn narrow_float(vt: ValueType, y: f64) -> Value {
+    match vt {
+        ValueType::Float => Value::Double(y as f32 as f64),
+        ValueType::Double => Value::Double(y),
+        _ => narrow_int(vt, y as i64),
+    }
 }
 
 // transforms the raw value into an egineering value
@@ -183,6 +216,9 @@ pub(crate) fn calibrate(
     dtype: &DataType,
     ctx: &mut ProcCtx,
 ) -> Result<Value> {
+    if let TypeData::AbsoluteTime(atype) = &dtype.type_data {
+        return from_time_raw(rawv, atype, ctx);
+    }
     if let Some(v) = apply_calibrator(rawv, dtype, ctx)? {
         return Ok(v);
     }
@@ -190,34 +226,74 @@ pub(crate) fn calibrate(
         Value::Array(v) => from_array(v, dtype, ctx),
         Value::Int64(v) => from_signed_integer(*v, dtype, ctx),
         Value::Uint64(v) => from_unsigned_integer(*v, dtype, ctx),
-        Value::Double(v) => from_double(*v, dtype, ctx),
+        Value::Double(v) => from_double(*v, dtype),
         Value::Boolean(v) => from_boolean(*v, dtype, ctx),
         Value::StringValue(v) => from_string(v, dtype, ctx),
         Value::Binary(v) => from_binary(v, dtype, ctx),
         Value::Aggregate(v) => from_aggregate(v, dtype, ctx),
-        Value::Enumerated(_) => {
+        Value::Enumerated(_) | Value::Timestamp(_) => {
             Err(ProcError::InvalidValue(format!("Unexpected raw data type {:?}", rawv)))
         }
     }
 }
 
-fn from_signed_integer(v: i64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value> {
-
-    let x = match &dt.type_data {
-        TypeData::Integer(idt) => {
-            let bitsize = idt.size_in_bits as usize;
-            if idt.signed {
-                Value::int_value(bitsize, v)
-            } else {
-                let v1 = if v < 0 { 0 } else { v as u64 };
-                Value::uint_value(bitsize, v1)
-            }
+/// computes the absolute time from the raw value like in Yamcs
+fn from_time_raw(rawv: &Value, atype: &AbsoluteTimeDataType, ctx: &ProcCtx) -> Result<Value> {
+    let needs_scaling = atype.scale != 1.0 || atype.offset != 0.0;
+    // milliseconds since the reference time
+    let offset_ms = match rawv {
+        Value::StringValue(s) => {
+            // string encoded time: the value is an absolute time
+            return crate::time::parse(s).map(Value::Timestamp).ok_or_else(|| {
+                ProcError::DecodingError(format!("Cannot parse '{}' as a time", s))
+            });
         }
-        TypeData::Float(_) => Value::Double(v as f64),
+        Value::Int64(v) if !needs_scaling => v.wrapping_mul(1000),
+        Value::Uint64(v) if !needs_scaling => (*v as i64).wrapping_mul(1000),
+        _ => {
+            let x: f64 = rawv.try_into().map_err(|_| {
+                ProcError::DecodingError(format!("Cannot convert raw value {:?} to time", rawv))
+            })?;
+            (1000.0 * atype.offset + 1000.0 * atype.scale * x) as i64
+        }
+    };
+
+    let t = match &atype.reference {
+        TimeReference::Epoch(epoch) => match epoch {
+            TimeEpoch::Tai => crate::time::from_tai_millis(offset_ms),
+            TimeEpoch::J2000 => crate::time::from_j2000_millis(offset_ms),
+            TimeEpoch::Unix => crate::time::from_unix_millis(offset_ms),
+            TimeEpoch::Gps => crate::time::from_gps_millis(offset_ms),
+            TimeEpoch::DateTime(t0) => t0 + offset_ms,
+        },
+        TimeReference::OffsetFrom(para_ref) => match ctx.get_param_value(para_ref) {
+            Some(Value::Timestamp(t0)) => t0 + offset_ms,
+            Some(v) => {
+                return Err(ctx.decoding_error(&format!(
+                    "the reference time parameter has a non time value {:?}",
+                    v
+                )))
+            }
+            None => {
+                return Err(ctx.decoding_error(&format!(
+                    "no value available for the reference time parameter {}",
+                    para_ref.to_string(ctx.mdb)
+                )))
+            }
+        },
+        TimeReference::None => {
+            return Err(ctx.decoding_error("absolute time type without reference time"))
+        }
+    };
+    Ok(Value::Timestamp(t))
+}
+
+fn from_signed_integer(v: i64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value> {
+    let x = match &dt.type_data {
+        TypeData::Integer(_) | TypeData::Float(_) => narrow_int(dt.eng_value_type(), v),
         TypeData::String(_) => Value::StringValue(Box::new(v.to_string())),
         TypeData::Boolean(_) => Value::Boolean(v != 0),
         TypeData::Enumerated(edt) => Value::Enumerated(get_enumeration(edt, v)),
-        TypeData::AbsoluteTime(_) => return Err(unsupported_time()),
         _ => {
             return Err(ProcError::InvalidValue(format!(
                 "cannot convert integer to {:?}",
@@ -232,20 +308,13 @@ fn from_signed_integer(v: i64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value> {
 // computes the engineering value from a unsigned integer raw value
 fn from_unsigned_integer(rv: u64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value> {
     let x = match &dt.type_data {
-        TypeData::Integer(idt) => {
-            let bitsize = idt.size_in_bits as usize;
-            if idt.signed {
-                // the value is clamped to the range of the signed type
-                Value::int_value(bitsize, rv.min(i64::MAX as u64) as i64)
-            } else {
-                Value::uint_value(bitsize, rv)
-            }
-        }
-        TypeData::Float(_) => Value::Double(rv as f64),
+        // the conversion of an unsigned 64 bits raw to float uses the unsigned value
+        TypeData::Float(_) => narrow_float(dt.eng_value_type(), rv as f64),
+        // the unsigned raw value is handled as a Java long (i.e. the same bits)
+        TypeData::Integer(_) => narrow_int(dt.eng_value_type(), rv as i64),
         TypeData::String(_) => Value::StringValue(Box::new(rv.to_string())),
         TypeData::Boolean(_) => Value::Boolean(rv != 0),
         TypeData::Enumerated(edt) => Value::Enumerated(get_enumeration(edt, rv as i64)),
-        TypeData::AbsoluteTime(_) => return Err(unsupported_time()),
         _ => {
             return Err(ProcError::InvalidValue(format!(
                 "cannot convert unsigned integer to {:?}",
@@ -257,28 +326,16 @@ fn from_unsigned_integer(rv: u64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value
     Ok(x)
 }
 
-
-
 // computes the engineering value from a double value
-fn from_double(rv: f64, dt: &DataType, _ctx: &ProcCtx) -> Result<Value> {
-    
+pub(crate) fn from_double(rv: f64, dt: &DataType) -> Result<Value> {
     let x = match &dt.type_data {
-        TypeData::Integer(idt) => {
-            let bitsize = idt.size_in_bits as usize;
-            if idt.signed {                                   
-                Value::int_value(bitsize, rv as i64)                
-            } else {
-                Value::uint_value(bitsize, rv as u64)
-            }
-        }
-        TypeData::Float(_) => Value::Double(rv),
+        TypeData::Integer(_) | TypeData::Float(_) => narrow_float(dt.eng_value_type(), rv),
         TypeData::String(_) => Value::StringValue(Box::new(rv.to_string())),
         TypeData::Boolean(_) => Value::Boolean(rv != 0.0),
         TypeData::Enumerated(edt) => Value::Enumerated(get_enumeration(edt, rv as i64)),
-        TypeData::AbsoluteTime(_) => return Err(unsupported_time()),
         _ => {
             return Err(ProcError::InvalidValue(format!(
-                "cannot convert unsigned integer to {:?}",
+                "cannot convert double to {:?}",
                 dt.type_data
             )))
         }
@@ -355,15 +412,16 @@ fn from_string(rv: &str, dt: &DataType, _ctx: &ProcCtx) -> Result<Value> {
     let s = rv.trim();
     let x = match &dt.type_data {
         TypeData::String(_) => Value::StringValue(Box::new(rv.to_owned())),
-        TypeData::Integer(idt) => {
-            let bitsize = idt.size_in_bits as usize;
-            if idt.signed {
-                Value::int_value(bitsize, s.parse::<i64>().map_err(|_| invalid("integer"))?)
-            } else {
-                Value::uint_value(bitsize, s.parse::<u64>().map_err(|_| invalid("unsigned integer"))?)
-            }
+        TypeData::Integer(_) => {
+            let v = match s.parse::<i64>() {
+                Ok(v) => v,
+                Err(_) => s.parse::<u64>().map_err(|_| invalid("integer"))? as i64,
+            };
+            narrow_int(dt.eng_value_type(), v)
         }
-        TypeData::Float(_) => Value::Double(s.parse::<f64>().map_err(|_| invalid("float"))?),
+        TypeData::Float(_) => {
+            narrow_float(dt.eng_value_type(), s.parse::<f64>().map_err(|_| invalid("float"))?)
+        }
         TypeData::Boolean(bdt) => {
             if s == bdt.one_string_value {
                 Value::Boolean(true)
@@ -377,8 +435,7 @@ fn from_string(rv: &str, dt: &DataType, _ctx: &ProcCtx) -> Result<Value> {
             let v = s.parse::<i64>().map_err(|_| invalid("enumerated"))?;
             Value::Enumerated(get_enumeration(edt, v))
         }
-        TypeData::AbsoluteTime(_) => return Err(unsupported_time()),
-        TypeData::Binary(_) | TypeData::Aggregate(_) | TypeData::Array(_) => {
+        TypeData::AbsoluteTime(_) | TypeData::Binary(_) | TypeData::Aggregate(_) | TypeData::Array(_) => {
             return Err(ProcError::InvalidValue(format!(
                 "cannot convert string to {:?}",
                 dt.type_data
@@ -403,8 +460,4 @@ fn from_binary(rv: &[u8], dt: &DataType, _ctx: &ProcCtx) -> Result<Value> {
         TypeData::Binary(_) => Ok(Value::Binary(Box::new(rv.to_vec()))),
         _ => Err(ProcError::InvalidValue(format!("cannot convert binary to {:?}", dt.type_data))),
     }
-}
-
-fn unsupported_time() -> ProcError {
-    ProcError::DecodingError("absolute time parameters are not yet supported".to_owned())
 }

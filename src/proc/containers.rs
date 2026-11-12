@@ -9,31 +9,29 @@ use crate::{
     value::ParameterValue,
 };
 
-use super::{types, ContainerBuf, ProcCtx, ProcessorData, Result, ProcError};
+use super::{types, ProcCtx, ProcError, Result, TmProcessor};
+use crate::time::INVALID_INSTANT;
 
 //1GB that should be plenty enough
-const MAX_PACKET_SIZE: usize = (u32::MAX / 4) as usize;
+pub(crate) const MAX_PACKET_SIZE: usize = (u32::MAX / 4) as usize;
 
+/// Processes a packet without any state: references to previous parameter values are not resolved
+/// and the generation and acquisition times are not set.
+///
+/// Use [TmProcessor] to process a stream of packets.
 pub fn process(
     mdb: &MissionDatabase,
     packet: &[u8],
     root_container: ContainerIdx,
 ) -> Result<ParameterValueList> {
-    if packet.len() > MAX_PACKET_SIZE {
-        return Err(ProcError::OutOfBounds(format!(
-            "Packet too long: {} bytes; max size is {}",
-            packet.len(),
-            MAX_PACKET_SIZE
-        )));
-    }
-    let container = mdb.get_container(root_container);
+    let mut tmp = TmProcessor::new(mdb)?;
+    tmp.process(packet, root_container, INVALID_INSTANT, INVALID_INSTANT)
+}
 
-    let mut pdata = ProcessorData::new(mdb)?;
-    let cbuf = ContainerBuf::new(packet);
-    let mut ctx = ProcCtx { mdb, pdata: &mut pdata, cbuf, result: ParameterValueList::new(), pidx: None };
-    extract_container(&mut ctx, container)?;
-
-    Ok(ctx.result)
+/// extracts the parameters from the packet starting with the root container; the values are added to the ctx.result
+pub(crate) fn extract(ctx: &mut ProcCtx, root_container: ContainerIdx) -> Result<()> {
+    let container = ctx.mdb.get_container(root_container);
+    extract_container(ctx, container)
 }
 
 fn extract_container(ctx: &mut ProcCtx, container: &SequenceContainer) -> Result<()> {
@@ -242,7 +240,7 @@ fn extract_array_parameter(ape: &ArrayParameterRefEntry, ctx: &mut ProcCtx) -> R
     ctx.pidx.replace(pidx);
     let (raw_value, _cpos) = types::extract_array(atype, dims, ctx)?;
     let eng_value = types::calibrate(&raw_value, dtype, ctx)?;
-    ctx.result.push(ParameterValue { pidx, raw_value, eng_value });
+    ctx.result.push(ParameterValue::new(pidx, raw_value, eng_value));
     ctx.pidx.take();
 
     Ok(())
@@ -262,7 +260,7 @@ fn extract_parameter(pidx: ParameterIdx, ctx: &mut ProcCtx) -> Result<()> {
     let (raw_value, _cpos) = types::extract(dtype, ctx)?;
     let eng_value = types::calibrate(&raw_value, dtype, ctx)?;
 
-    let pv = ParameterValue { pidx, raw_value, eng_value };
+    let pv = ParameterValue::new(pidx, raw_value, eng_value);
 
     ctx.result.push(pv);
     ctx.pidx.take();

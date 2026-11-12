@@ -2,7 +2,10 @@ use std::fmt::{self, Formatter};
 
 use smallvec::SmallVec;
 
-use crate::{bitbuffer::ByteOrder, value::Value};
+use crate::{
+    bitbuffer::ByteOrder,
+    value::{Value, ValueType},
+};
 
 use super::{
     DataTypeIdx, DynamicValueType, IntegerValue, MatchCriteriaIdx, MissionDatabase,
@@ -24,6 +27,32 @@ pub struct DataType {
 }
 
 impl DataType {
+    /// the type of the engineering values as in Yamcs
+    pub fn eng_value_type(&self) -> ValueType {
+        match &self.type_data {
+            TypeData::Integer(idt) => match (idt.size_in_bits <= 32, idt.signed) {
+                (true, true) => ValueType::Sint32,
+                (true, false) => ValueType::Uint32,
+                (false, true) => ValueType::Sint64,
+                (false, false) => ValueType::Uint64,
+            },
+            TypeData::Float(fdt) => {
+                if fdt.size_in_bits == 32 {
+                    ValueType::Float
+                } else {
+                    ValueType::Double
+                }
+            }
+            TypeData::String(_) => ValueType::String,
+            TypeData::Binary(_) => ValueType::Binary,
+            TypeData::Boolean(_) => ValueType::Boolean,
+            TypeData::Enumerated(_) => ValueType::Enumerated,
+            TypeData::Aggregate(_) => ValueType::Aggregate,
+            TypeData::Array(_) => ValueType::Array,
+            TypeData::AbsoluteTime(_) => ValueType::Timestamp,
+        }
+    }
+
     pub fn new(ndescr: NameDescription, type_data: TypeData) -> DataType {
         DataType {
             ndescr,
@@ -50,6 +79,27 @@ pub enum TypeData {
     AbsoluteTime(AbsoluteTimeDataType),
 }
 
+
+impl DataEncoding {
+    /// the type of the raw values as in Yamcs; None for types without encoding (aggregates, arrays)
+    pub fn raw_value_type(&self) -> Option<ValueType> {
+        match self {
+            DataEncoding::None => None,
+            DataEncoding::Integer(ide) => Some(match (ide.size_in_bits <= 32, ide.encoding) {
+                (true, IntegerEncodingType::Unsigned) => ValueType::Uint32,
+                (true, _) => ValueType::Sint32,
+                (false, IntegerEncodingType::Unsigned) => ValueType::Uint64,
+                (false, _) => ValueType::Sint64,
+            }),
+            DataEncoding::Float(fde) => {
+                Some(if fde.size_in_bits <= 32 { ValueType::Float } else { ValueType::Double })
+            }
+            DataEncoding::Boolean(_) => Some(ValueType::Boolean),
+            DataEncoding::Binary(_) => Some(ValueType::Binary),
+            DataEncoding::String(_) => Some(ValueType::String),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum DataEncoding {
@@ -162,10 +212,10 @@ pub struct NumericRange {
 impl NumericRange {
     /// returns true if the value is within the range
     pub fn contains(&self, v: f64) -> bool {
-        self.min_inclusive.map_or(true, |m| v >= m)
-            && self.min_exclusive.map_or(true, |m| v > m)
-            && self.max_inclusive.map_or(true, |m| v <= m)
-            && self.max_exclusive.map_or(true, |m| v < m)
+        self.min_inclusive.is_none_or(|m| v >= m)
+            && self.min_exclusive.is_none_or(|m| v > m)
+            && self.max_inclusive.is_none_or(|m| v <= m)
+            && self.max_exclusive.is_none_or(|m| v < m)
     }
 }
 
@@ -267,6 +317,8 @@ pub struct SplinePoint {
 pub enum MathOpElement {
     Value(f64),
     ThisParameter,
+    /// input of a math algorithm (index in the algorithm input list)
+    Input(usize),
     Operator(MathOperator),
 }
 
@@ -516,8 +568,8 @@ pub enum TimeEpoch {
     Unix,
     /// 1980-01-06T00:00:00 UTC
     Gps,
-    /// an explicit date or date time (xs:date or xs:dateTime)
-    DateTime(String),
+    /// an explicit date or date time (xs:date or xs:dateTime), converted to instant
+    DateTime(i64),
 }
 
 #[derive(Debug, Clone)]

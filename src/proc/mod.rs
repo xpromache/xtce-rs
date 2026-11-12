@@ -6,7 +6,7 @@ use crate::{
         ParameterInstanceRef, MdbError,
     },
     pvlist::ParameterValueList,
-    value::Value,
+    value::{ParameterValue, Value},
 };
 
 use self::criteria_evaluator::CriteriaEvaluator;
@@ -16,7 +16,10 @@ pub mod containers;
 pub mod criteria_evaluator;
 pub mod encodings;
 pub mod misc;
+pub mod tm;
 pub mod types;
+
+pub use tm::{ParameterCache, TmProcessor};
 
 use thiserror::Error;
 
@@ -157,30 +160,36 @@ impl<'a> ContainerBuf<'a> {
     }
 }
 
-pub(crate) struct ProcCtx<'a, 'b, 'c> {
+pub(crate) struct ProcCtx<'a, 'b, 'c, 'd> {
     mdb: &'a MissionDatabase,
     pdata: &'b mut ProcessorData,
     cbuf: ContainerBuf<'c>,
     result: ParameterValueList,
     pidx: Option<ParameterIdx>,
+    /// values from the previous packets
+    cache: &'d ParameterCache,
 }
 
-impl<'a> ProcCtx<'a, '_, '_> {
+impl<'a> ProcCtx<'a, '_, '_, '_> {
     fn mdb(&mut self) -> &'a MissionDatabase {
         self.mdb
     }
 
-    /// returns the value of the referenced parameter from the current context.
-    /// Returns None if the value is not available (including for references to past instances,
-    /// which are not yet supported)
-    fn get_param_value(&self, para_ref: &ParameterInstanceRef) -> Option<&Value> {
-        if para_ref.instance != 0 {
-            log::debug!("references to past parameter instances are not yet supported");
+    /// returns the parameter value instance: 0 is the last value, -1 the one before, etc.
+    /// The values extracted from the current packet are considered first and then the ones from the cache.
+    fn get_param_instance(&self, pidx: ParameterIdx, instance: i32) -> Option<&ParameterValue> {
+        if instance > 0 {
             return None;
         }
+        let k = instance.unsigned_abs() as usize;
+        self.result.iter_param_rev(pidx).chain(self.cache.iter(pidx)).nth(k)
+    }
 
-        let pv = self.result.last_inserted(para_ref.pidx)?;
-        let v = if para_ref.use_calibrated_value { &pv.eng_value } else { &pv.raw_value };
+    /// returns the value of the referenced parameter from the current context.
+    /// Returns None if the value is not available.
+    fn get_param_value(&self, para_ref: &ParameterInstanceRef) -> Option<&Value> {
+        let pv = self.get_param_instance(para_ref.pidx, para_ref.instance)?;
+        let v = if para_ref.use_calibrated_value { &pv.eng_value } else { pv.raw_value.as_ref()? };
         Some(v).map_or(None, |val| {
             if let Some(path) = &para_ref.member_path {
                 get_member_value(val, path)

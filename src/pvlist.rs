@@ -45,11 +45,41 @@ impl ParameterValueList {
         self.entries.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// iterates over the values of the given parameter, the most recently inserted first
+    pub fn iter_param_rev(&self, pidx: ParameterIdx) -> impl Iterator<Item = &ParameterValue> {
+        let mut idx = self.last_idx.get(&pidx).copied().unwrap_or(u32::MAX);
+        std::iter::from_fn(move || {
+            if idx == u32::MAX {
+                return None;
+            }
+            let e = &self.entries[idx as usize];
+            idx = e.prev;
+            Some(&e.pv)
+        })
+    }
+
+    /// returns true if the list contains at least one value for the parameter
+    pub fn contains(&self, pidx: ParameterIdx) -> bool {
+        self.last_idx.contains_key(&pidx)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &ParameterValue> {
+        self.entries.iter().map(|e| &e.pv)
+    }
+
+    pub(crate) fn get_mut(&mut self, idx: usize) -> &mut ParameterValue {
+        &mut self.entries[idx].pv
+    }
+
     pub fn eng(&self, idx: usize) -> &Value {
         &self.entries[idx].pv.eng_value
     }
-    pub fn raw(&self, idx: usize) -> &Value {
-        &self.entries[idx].pv.raw_value
+    pub fn raw(&self, idx: usize) -> Option<&Value> {
+        self.entries[idx].pv.raw_value.as_ref()
     }
 
 }

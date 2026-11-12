@@ -209,6 +209,18 @@ pub(super) fn read_para_insta_ref(
     };
 
     let instance = (read_attribute::<i32>(node, "instance")?).unwrap_or(0);
+    if instance > 0 {
+        log::warn!(
+            "Reference to parameter {} with positive instance {}: no value will ever be found",
+            pref,
+            instance
+        );
+    }
+    if instance < 0 && pidx != INVALID_PARAM_IDX {
+        let mut h = ctx.history.borrow_mut();
+        let d = h.entry(pidx).or_insert(0);
+        *d = (*d).max((-instance) as usize);
+    }
     let use_calibrated_value =
         (read_attribute::<bool>(node, "useCalibratedValue")?).unwrap_or(true);
 
