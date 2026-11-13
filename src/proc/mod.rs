@@ -188,7 +188,19 @@ impl<'a> ProcCtx<'a, '_, '_, '_> {
     /// returns the value of the referenced parameter from the current context.
     /// Returns None if the value is not available.
     fn get_param_value(&self, para_ref: &ParameterInstanceRef) -> Option<&Value> {
-        let pv = self.get_param_instance(para_ref.pidx, para_ref.instance)?;
+        self.get_param_value_at(para_ref, para_ref.instance)
+    }
+
+    /// returns the value of the referenced parameter used in a match criteria.
+    ///
+    /// Like Yamcs, the instance is ignored: the last value from the current packet is used or, if the parameter
+    /// has not been extracted from the current packet, the last value from the cache.
+    fn get_criteria_value(&self, para_ref: &ParameterInstanceRef) -> Option<&Value> {
+        self.get_param_value_at(para_ref, 0)
+    }
+
+    fn get_param_value_at(&self, para_ref: &ParameterInstanceRef, instance: i32) -> Option<&Value> {
+        let pv = self.get_param_instance(para_ref.pidx, instance)?;
         let v = if para_ref.use_calibrated_value { &pv.eng_value } else { pv.raw_value.as_ref()? };
         Some(v).map_or(None, |val| {
             if let Some(path) = &para_ref.member_path {

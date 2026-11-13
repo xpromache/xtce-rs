@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Test file for the command encoding: argument types, calibrators, inheritance, fixed values,
-     container references, repeated entries and validation -->
+     validation. It is also used for the Yamcs golden tests (tests/golden). -->
 <SpaceSystem name="P3" xmlns="http://www.omg.org/spec/XTCE/20180204">
 	<TelemetryMetaData>
 		<ParameterTypeSet>
@@ -35,13 +35,13 @@
 			<FloatArgumentType name="f32_t" sizeInBits="32">
 				<FloatDataEncoding sizeInBits="32" />
 			</FloatArgumentType>
-			<!-- eng = 0.5 * raw - 10 -->
+			<!-- like in Yamcs, the calibrators of the argument types convert from engineering to raw: raw = 2 * eng + 20 -->
 			<FloatArgumentType name="volt_t" sizeInBits="64">
 				<IntegerDataEncoding sizeInBits="16">
 					<DefaultCalibrator>
 						<PolynomialCalibrator>
-							<Term exponent="0" coefficient="-10" />
-							<Term exponent="1" coefficient="0.5" />
+							<Term exponent="0" coefficient="20" />
+							<Term exponent="1" coefficient="2" />
 						</PolynomialCalibrator>
 					</DefaultCalibrator>
 				</IntegerDataEncoding>
@@ -53,9 +53,10 @@
 				<IntegerDataEncoding sizeInBits="8">
 					<DefaultCalibrator>
 						<SplineCalibrator>
+							<!-- "raw" is the engineering value and "calibrated" is the raw value -->
 							<SplinePoint raw="0" calibrated="0" />
-							<SplinePoint raw="10" calibrated="100" />
-							<SplinePoint raw="20" calibrated="150" />
+							<SplinePoint raw="100" calibrated="10" />
+							<SplinePoint raw="150" calibrated="20" />
 						</SplineCalibrator>
 					</DefaultCalibrator>
 				</IntegerDataEncoding>
@@ -96,9 +97,9 @@
 			</StringArgumentType>
 			<BinaryArgumentType name="blob_t">
 				<BinaryDataEncoding>
-					<SizeInBits>
-						<LeadingSize sizeInBitsOfSizeTag="16" />
-					</SizeInBits>
+					<ToBinaryTransformAlgorithm name="LeadingSizeBinaryEncoder">
+						<AlgorithmText language="java">org.yamcs.algo.LeadingSizeBinaryEncoder(16)</AlgorithmText>
+					</ToBinaryTransformAlgorithm>
 				</BinaryDataEncoding>
 				<SizeRangeInBytes maxInclusive="4" />
 			</BinaryArgumentType>
@@ -196,14 +197,7 @@
 						<ArgumentRefEntry argumentRef="t" />
 						<ArgumentRefEntry argumentRef="pos" />
 						<ArgumentRefEntry argumentRef="arr" />
-						<ContainerRefEntry containerRef="TRAILER" />
-						<ArgumentRefEntry argumentRef="rep">
-							<RepeatEntry>
-								<Count>
-									<FixedValue>2</FixedValue>
-								</Count>
-							</RepeatEntry>
-						</ArgumentRefEntry>
+						<ArgumentRefEntry argumentRef="rep" />
 					</EntryList>
 					<BaseContainer containerRef="BASE" />
 				</CommandContainer>
@@ -247,17 +241,5 @@
 				</CommandContainer>
 			</MetaCommand>
 		</MetaCommandSet>
-		<CommandContainerSet>
-			<CommandContainer name="TRAILER">
-				<BinaryEncoding>
-					<SizeInBits>
-						<FixedValue>32</FixedValue>
-					</SizeInBits>
-				</BinaryEncoding>
-				<EntryList>
-					<FixedValueEntry name="marker" binaryValue="AB" sizeInBits="8" />
-				</EntryList>
-			</CommandContainer>
-		</CommandContainerSet>
 	</CommandMetaData>
 </SpaceSystem>

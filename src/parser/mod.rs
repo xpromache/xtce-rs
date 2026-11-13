@@ -110,7 +110,12 @@ impl std::convert::From<roxmltree::Error> for XtceError {
 
 pub fn parse(mdb: &mut MissionDatabase, path: &Path) -> Result<()> {
     let text = std::fs::read_to_string(path)?;
-    let doc = roxmltree::Document::parse(&text)?;
+    parse_str(mdb, &text)
+}
+
+/// parses the XTCE document given as string and adds its content to the mdb
+pub fn parse_str(mdb: &mut MissionDatabase, text: &str) -> Result<()> {
+    let doc = roxmltree::Document::parse(text)?;
     let root_element = doc.root_element();
     let mut path = QualifiedName::empty();
     let mut name_tree = NameTree {

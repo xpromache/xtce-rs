@@ -1,3 +1,4 @@
 /target
 .idea
 xtce-rs.iml
+tools/yamcs-golden/target/

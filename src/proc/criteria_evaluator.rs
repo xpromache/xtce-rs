@@ -65,7 +65,7 @@ struct RefRefEvaluator {
 
 impl CriteriaEvaluator for RefRefEvaluator {
     fn evaluate(&self, ctx: &ProcCtx) -> MatchResult {
-        match (ctx.get_param_value(&self.left), ctx.get_param_value(&self.right)) {
+        match (ctx.get_criteria_value(&self.left), ctx.get_criteria_value(&self.right)) {
             (Some(left), Some(right)) => {
                 if let ComparisonOperator::Equality = self.operator {
                     compare_equal(left, right)
@@ -189,7 +189,7 @@ impl CriteriaEvaluator for AndEvaluator {
 //evaluator for equality comparisons
 impl CriteriaEvaluator for RefEqualValueEvaluator {
     fn evaluate(&self, ctx: &ProcCtx) -> MatchResult {
-        let left = ctx.get_param_value(&self.left);
+        let left = ctx.get_criteria_value(&self.left);
 
         match left {
             Some(left) => compare_equal(&left, &self.right),
@@ -227,7 +227,7 @@ fn check_equals<T: PartialEq>(x: T, y: T) -> MatchResult {
 //evaluator for other (>, >=,...) comparisons
 impl CriteriaEvaluator for RefValueEvaluator {
     fn evaluate(&self, ctx: &ProcCtx) -> MatchResult {
-        let left = ctx.get_param_value(&self.left);
+        let left = ctx.get_criteria_value(&self.left);
 
         match left {
             Some(left) => compare(self.operator, &left, &self.right),

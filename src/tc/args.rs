@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use crate::{
     mdb::{
         types::{
-            AbsoluteTimeDataType, Calibrator, DataEncoding, DataType, EnumeratedDataType,
-            SplineCalibrator, TimeEpoch, TimeReference, TypeData,
+            AbsoluteTimeDataType, AggregateDataType, ArrayDataType, DataEncoding, DataType, EnumeratedDataType,
+            TimeEpoch, TimeReference, TypeData,
         },
         IntegerValue, MissionDatabase, NamedItem,
     },
@@ -16,7 +16,10 @@ use crate::{
     value::{AggregateValue, ArrayValue, EnumeratedValue, Value},
 };
 
-use super::{Result, TcError};
+use super::{
+    json::{self, Json},
+    Result, TcError,
+};
 
 fn invalid<T>(msg: String) -> Result<T> {
     Err(TcError::InvalidValue(msg))
@@ -111,6 +114,9 @@ pub(crate) fn to_eng_value(mdb: &MissionDatabase, dtype: &DataType, v: &Value) -
             _ => invalid(format!("cannot convert {:?} to time", v)),
         },
         TypeData::Aggregate(atype) => {
+            if let Some(s) = s {
+                return to_eng_value(mdb, dtype, &aggregate_from_json(mdb, atype, s)?);
+            }
             let Value::Aggregate(av) = v else {
                 return invalid(format!("cannot convert {:?} to aggregate", v));
             };
@@ -133,6 +139,9 @@ pub(crate) fn to_eng_value(mdb: &MissionDatabase, dtype: &DataType, v: &Value) -
             Ok(Value::Aggregate(Box::new(AggregateValue(m))))
         }
         TypeData::Array(atype) => {
+            if let Some(s) = s {
+                return to_eng_value(mdb, dtype, &array_from_json(atype, s)?);
+            }
             let Value::Array(av) = v else {
                 return invalid(format!("cannot convert {:?} to array", v));
             };
@@ -305,7 +314,12 @@ pub(crate) fn decalibrate(mdb: &MissionDatabase, dtype: &DataType, eng: &Value) 
                 _ => return invalid(format!("unexpected numeric value {:?}", eng)),
             };
             match &dtype.calibrator {
-                Some(cal) => numeric_raw(enc, reverse_calibrate(cal, x)?),
+                // like in Yamcs, the calibrator of an argument type converts the engineering value to raw
+                Some(cal) => {
+                    let y = crate::proc::calibrators::calibrate(cal, x)
+                        .map_err(|e| TcError::InvalidValue(e.to_string()))?;
+                    calibrated_raw(enc, y)
+                }
                 // integers are kept exact
                 None => match eng {
                     Value::Int64(_) | Value::Uint64(_) => match enc {
@@ -357,14 +371,65 @@ pub(crate) fn decalibrate(mdb: &MissionDatabase, dtype: &DataType, eng: &Value) 
     }
 }
 
-/// converts a floating point raw value to the type required by the encoding
+fn parse_json(s: &str) -> Result<Json> {
+    json::parse(s).map_err(|e| TcError::InvalidValue(format!("cannot parse '{}' as JSON: {}", s, e)))
+}
+
+fn json_string(j: &Json) -> Value {
+    Value::StringValue(Box::new(j.as_arg_string()))
+}
+
+/// converts a JSON object to an aggregate value whose members are strings to be converted according to the
+/// member types (the JSON strings are used without quotes, the other JSON values as JSON text)
+fn aggregate_from_json(mdb: &MissionDatabase, atype: &AggregateDataType, s: &str) -> Result<Value> {
+    let Json::Object(members) = parse_json(s)? else {
+        return invalid(format!("expected a JSON object for the aggregate value, got '{}'", s));
+    };
+    let mut m = HashMap::new();
+    for (k, j) in &members {
+        let Some(member) = atype.members.iter().find(|m| mdb.name2str(m.name()) == k) else {
+            return invalid(format!("unknown aggregate member {}", k));
+        };
+        m.insert(member.name(), json_string(j));
+    }
+    Ok(Value::Aggregate(Box::new(AggregateValue(m))))
+}
+
+/// converts a JSON array (nested for multidimensional arrays) to an array of strings to be converted according
+/// to the element type
+fn array_from_json(atype: &ArrayDataType, s: &str) -> Result<Value> {
+    let j = parse_json(s)?;
+    let ndims = atype.number_of_dimensions.max(1);
+    let mut dims = Vec::new();
+    let mut level = vec![&j];
+    for d in 0..ndims {
+        let mut next = Vec::new();
+        let mut size = None;
+        for x in level {
+            let Json::Array(a) = x else {
+                return invalid(format!("expected a JSON array with {} dimensions, got '{}'", ndims, s));
+            };
+            if *size.get_or_insert(a.len()) != a.len() {
+                return invalid(format!("the arrays of dimension {} have different sizes in '{}'", d, s));
+            }
+            next.extend(a.iter());
+        }
+        dims.push(size.unwrap_or(0));
+        level = next;
+    }
+    let values = level.into_iter().map(json_string).collect();
+    Ok(Value::Array(Box::new(ArrayValue { dims, values })))
+}
+
+/// converts a floating point engineering value (of a type without calibrator) to the raw value required by
+/// the encoding. Like in Yamcs, the conversion to integer truncates the fractional part (Java (long) cast).
 fn numeric_raw(enc: &DataEncoding, x: f64) -> Result<Value> {
     match enc {
         DataEncoding::Integer(ide) => {
             if !x.is_finite() {
                 return invalid(format!("cannot encode {} as integer", x));
             }
-            let v = java_round(x);
+            let v = x as i64;
             if ide.encoding == crate::mdb::types::IntegerEncodingType::Unsigned && v >= 0 {
                 Ok(Value::Uint64(v as u64))
             } else {
@@ -377,54 +442,27 @@ fn numeric_raw(enc: &DataEncoding, x: f64) -> Result<Value> {
     }
 }
 
-/// inverse of the calibration: computes the raw value from the engineering value
-pub(crate) fn reverse_calibrate(cal: &Calibrator, y: f64) -> Result<f64> {
-    match cal {
-        Calibrator::Polynomial(c) => {
-            // trailing zero coefficients do not change the degree
-            let degree = c.iter().rposition(|x| *x != 0.0).unwrap_or(0);
-            match degree {
-                1 => Ok((y - c[0]) / c[1]),
-                0 => invalid("cannot reverse a constant polynomial calibrator".to_owned()),
-                _ => Err(TcError::Unsupported(
-                    "decalibration with polynomials of degree higher than 1".to_owned(),
-                )),
-            }
+/// converts the output of the calibrator to the raw value type of the encoding like the Yamcs
+/// NumericCalibratorProc: Math.round to integers, negative values become 0 for the unsigned encodings,
+/// 32 bits int cast for the encodings up to 32 bits.
+fn calibrated_raw(enc: &DataEncoding, y: f64) -> Result<Value> {
+    match enc {
+        DataEncoding::Integer(ide) => {
+            let unsigned = ide.encoding == crate::mdb::types::IntegerEncodingType::Unsigned;
+            let r = if unsigned && y < 0.0 { 0 } else { java_round(y) };
+            Ok(match (ide.size_in_bits <= 32, unsigned) {
+                (true, true) => Value::Uint64(r as i32 as u32 as u64),
+                (true, false) => Value::Int64(r as i32 as i64),
+                (false, true) => Value::Uint64(r as u64),
+                (false, false) => Value::Int64(r),
+            })
         }
-        Calibrator::Spline(sc) => reverse_spline(sc, y),
-        Calibrator::MathOperation(_) => {
-            Err(TcError::Unsupported("decalibration with math operation calibrators".to_owned()))
+        DataEncoding::Float(fde) => {
+            Ok(Value::Double(if fde.size_in_bits <= 32 { y as f32 as f64 } else { y }))
         }
-        Calibrator::Unsupported(s) => Err(TcError::Unsupported(format!("calibrator {}", s))),
+        DataEncoding::String(_) => Ok(Value::StringValue(Box::new(y.to_string()))),
+        _ => invalid(format!("cannot encode a numeric value with {:?}", enc)),
     }
-}
-
-/// reverse of the linear spline calibration, possible only if the calibrated values are strictly monotonic
-fn reverse_spline(sc: &SplineCalibrator, y: f64) -> Result<f64> {
-    let p = &sc.points;
-    let increasing = p.windows(2).all(|w| w[1].calibrated > w[0].calibrated);
-    let decreasing = p.windows(2).all(|w| w[1].calibrated < w[0].calibrated);
-    if !increasing && !decreasing {
-        return Err(TcError::Unsupported(
-            "decalibration with spline calibrators whose calibrated values are not monotonic".to_owned(),
-        ));
-    }
-    let swapped = SplineCalibrator {
-        order: sc.order,
-        extrapolate: sc.extrapolate,
-        points: {
-            let mut v: Vec<_> = p
-                .iter()
-                .map(|sp| crate::mdb::types::SplinePoint { raw: sp.calibrated, calibrated: sp.raw })
-                .collect();
-            if decreasing {
-                v.reverse();
-            }
-            v
-        },
-    };
-    crate::proc::calibrators::calibrate(&Calibrator::Spline(swapped), y)
-        .map_err(|e| TcError::InvalidValue(e.to_string()))
 }
 
 /// computes the raw value of an absolute time
@@ -434,22 +472,26 @@ fn time_raw(atype: &AbsoluteTimeDataType, enc: &DataEncoding, t: i64) -> Result<
     }
     let offset_ms = match &atype.reference {
         TimeReference::Epoch(epoch) => match epoch {
-            TimeEpoch::Tai => t - time::TAI_EPOCH_YAMCS_EPOCH_DELTA,
-            TimeEpoch::J2000 => t - time::J2000_EPOCH_YAMCS_EPOCH_DELTA,
+            TimeEpoch::Tai => t.wrapping_sub(time::TAI_EPOCH_YAMCS_EPOCH_DELTA),
+            TimeEpoch::J2000 => t.wrapping_sub(time::J2000_EPOCH_YAMCS_EPOCH_DELTA),
             TimeEpoch::Unix => time::to_unix_millis(t),
-            TimeEpoch::Gps => t - time::GPS_EPOCH_YAMCS_EPOCH_DELTA,
-            TimeEpoch::DateTime(t0) => t - t0,
+            TimeEpoch::Gps => t.wrapping_sub(time::GPS_EPOCH_YAMCS_EPOCH_DELTA),
+            TimeEpoch::DateTime(t0) => t.wrapping_sub(*t0),
         },
         TimeReference::OffsetFrom(_) => {
             return Err(TcError::Unsupported("time arguments relative to a parameter (OffsetFrom)".to_owned()))
         }
         TimeReference::None => return invalid("absolute time type without reference time".to_owned()),
     };
+    // computed like in Yamcs (the raw value is a 64 bits integer for the integer encodings)
     let needs_scaling = atype.scale != 1.0 || atype.offset != 0.0;
+    let scaled = || (offset_ms as f64 - 1000.0 * atype.offset) / (1000.0 * atype.scale);
     match enc {
-        DataEncoding::Integer(_) if !needs_scaling => {
-            numeric_raw(enc, offset_ms.div_euclid(1000) as f64)
+        DataEncoding::Integer(_) => {
+            let x = if needs_scaling { scaled() as i64 } else { offset_ms / 1000 };
+            Ok(Value::Int64(x))
         }
-        _ => numeric_raw(enc, (offset_ms as f64 / 1000.0 - atype.offset) / atype.scale),
+        DataEncoding::Float(_) => Ok(Value::Double(if needs_scaling { scaled() } else { offset_ms as f64 / 1000.0 })),
+        _ => invalid(format!("cannot encode an absolute time with {:?}", enc)),
     }
 }

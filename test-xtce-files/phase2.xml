@@ -187,7 +187,7 @@
 					</RestrictionCriteria>
 				</BaseContainer>
 			</SequenceContainer>
-			<!-- the entry is included only if the counter changed since the previous packet -->
+			<!-- the entry is included only if the counter is not 0. As in Yamcs, the instance is ignored in the match criteria -->
 			<SequenceContainer name="history">
 				<EntryList>
 					<ParameterRefEntry parameterRef="counter" />

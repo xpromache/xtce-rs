@@ -1,0 +1,44 @@
+[package]
+name = "xtce-rs-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# Coverage guided fuzzing with cargo-fuzz (requires a nightly toolchain):
+#   cargo install cargo-fuzz
+#   cargo +nightly fuzz run tm_decode
+#   cargo +nightly fuzz run tc_encode
+#   cargo +nightly fuzz run xtce_parse
+# Set XTCE_FUZZ_FILE to choose the XTCE file used by tm_decode and tc_encode (default: test-xtce-files/BogusSAT-2.xml).
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+xtce-rs = { path = ".." }
+
+# not part of the main crate workspace
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "tm_decode"
+path = "fuzz_targets/tm_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tc_encode"
+path = "fuzz_targets/tc_encode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xtce_parse"
+path = "fuzz_targets/xtce_parse.rs"
+test = false
+doc = false
+bench = false

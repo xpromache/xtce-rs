@@ -53,8 +53,10 @@ fn tai_utc_at_unix(unix_millis: i64) -> i64 {
 }
 
 /// converts UNIX milliseconds (UTC) to instant
+///
+/// Like the Java long arithmetic in Yamcs, the conversions wrap around on overflow.
 pub fn from_unix_millis(unix_millis: i64) -> i64 {
-    unix_millis + 1000 * tai_utc_at_unix(unix_millis)
+    unix_millis.wrapping_add(1000 * tai_utc_at_unix(unix_millis))
 }
 
 /// converts an instant to UNIX milliseconds (UTC).
@@ -64,26 +66,26 @@ pub fn to_unix_millis(instant: i64) -> i64 {
         // the instant at which this leap second offset becomes effective
         let start = (t + ls) * 1000;
         if instant >= start {
-            return instant - ls * 1000;
+            return instant.wrapping_sub(ls * 1000);
         }
         // inside the inserted leap second (the previous offset would give a time after the boundary)
         if instant >= start - 1000 {
             return t * 1000;
         }
     }
-    instant - LEAP_SECONDS[0].1 * 1000
+    instant.wrapping_sub(LEAP_SECONDS[0].1 * 1000)
 }
 
 pub fn from_gps_millis(gps_millis: i64) -> i64 {
-    gps_millis + GPS_EPOCH_YAMCS_EPOCH_DELTA
+    gps_millis.wrapping_add(GPS_EPOCH_YAMCS_EPOCH_DELTA)
 }
 
 pub fn from_tai_millis(tai_millis: i64) -> i64 {
-    tai_millis + TAI_EPOCH_YAMCS_EPOCH_DELTA
+    tai_millis.wrapping_add(TAI_EPOCH_YAMCS_EPOCH_DELTA)
 }
 
 pub fn from_j2000_millis(j2000_millis: i64) -> i64 {
-    j2000_millis + J2000_EPOCH_YAMCS_EPOCH_DELTA
+    j2000_millis.wrapping_add(J2000_EPOCH_YAMCS_EPOCH_DELTA)
 }
 
 /// number of days since 1970-01-01 for the given civil date (proleptic Gregorian calendar)

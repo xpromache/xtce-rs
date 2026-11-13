@@ -264,10 +264,10 @@ fn from_time_raw(rawv: &Value, atype: &AbsoluteTimeDataType, ctx: &ProcCtx) -> R
             TimeEpoch::J2000 => crate::time::from_j2000_millis(offset_ms),
             TimeEpoch::Unix => crate::time::from_unix_millis(offset_ms),
             TimeEpoch::Gps => crate::time::from_gps_millis(offset_ms),
-            TimeEpoch::DateTime(t0) => t0 + offset_ms,
+            TimeEpoch::DateTime(t0) => t0.wrapping_add(offset_ms),
         },
         TimeReference::OffsetFrom(para_ref) => match ctx.get_param_value(para_ref) {
-            Some(Value::Timestamp(t0)) => t0 + offset_ms,
+            Some(Value::Timestamp(t0)) => t0.wrapping_add(offset_ms),
             Some(v) => {
                 return Err(ctx.decoding_error(&format!(
                     "the reference time parameter has a non time value {:?}",

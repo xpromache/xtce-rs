@@ -175,13 +175,11 @@ fn previous_instances() {
         r.iter().map(|pv| mdb.name2str(mdb.get_parameter(pv.pidx).name()).to_owned()).collect()
     };
 
-    // no previous counter: the include condition cannot be evaluated
+    // like in Yamcs, the instance is ignored in the include condition: the current counter is used
     let r = process(&mut tmp, &mdb, &[4, 0, 99]);
     assert!(!names(&r).contains(&"volt_prev".to_owned()));
-    // previous counter = 0
     let r = process(&mut tmp, &mdb, &[4, 5, 99]);
-    assert!(!names(&r).contains(&"volt_prev".to_owned()));
-    // previous counter = 5
+    assert_eq!(Value::Uint64(99), eng(&mdb, &r, "volt_prev"));
     let r = process(&mut tmp, &mdb, &[4, 7, 99]);
     assert_eq!(Value::Uint64(99), eng(&mdb, &r, "volt_prev"));
     // counter_delta uses the previous counter as well
@@ -194,7 +192,8 @@ fn stateless_process_has_no_history() {
     let root = mdb.search_container("/P2/root").unwrap();
     for _ in 0..2 {
         let r = xtce_rs::proc::containers::process(&mdb, &[4, 7, 99], root).unwrap();
-        assert!(get(&mdb, &r, "volt_prev").is_none());
+        // the previous counter is not available
+        assert_eq!(Value::Int64(7), eng(&mdb, &r, "counter_delta"));
         assert_eq!(xtce_rs::time::INVALID_INSTANT, r[0].generation_time);
     }
 }

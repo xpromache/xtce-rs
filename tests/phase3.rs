@@ -76,8 +76,8 @@ fn numeric_arguments() {
         ("s16le", Value::Int64(-2)),
         ("sm8", s("-5")),
         ("f32", Value::Double(1.5)),
-        ("volt", s("5.25")), // raw = (5.25 + 10) / 0.5 = 30.5 -> 31 (Math.round)
-        ("temp", Value::Double(125.0)), // spline reversed: raw 15
+        ("volt", s("5.25")), // raw = 2 * 5.25 + 20 = 30.5 -> 31 (Math.round)
+        ("temp", Value::Double(125.0)), // spline: raw 15
     ];
     let enc = encode(&mdb, "/P3/CMD_NUMERIC", &a).unwrap();
     // header: 11 + apid 100 (11 bits) + flag 1 + type_id 1 (8 bits) + 00, then the arguments
@@ -138,9 +138,10 @@ fn argument_errors() {
         encode(&mdb, "/P3/CMD_NUMERIC", &missing).map(|_| ())
     );
 
-    // decalibration with a polynomial of degree 2 is not supported
-    let e = encode(&mdb, "/P3/CMD_POLY2", &[("x", Value::Double(4.0))]).unwrap_err();
-    assert!(matches!(e, TcError::Unsupported(_)), "{:?}", e);
+    // the calibrator converts the engineering value to raw: 4^2
+    assert_eq!(vec![16], encode(&mdb, "/P3/CMD_POLY2", &[("x", Value::Double(4.0))]).unwrap().binary);
+    // 16^2 does not fit in 8 bits (Yamcs would silently truncate it)
+    arg_error(encode(&mdb, "/P3/CMD_POLY2", &[("x", Value::Double(16.0))]), "x");
 }
 
 #[test]
@@ -162,9 +163,9 @@ fn structured_arguments() {
     ];
     // header with apid 200 and type_id 2, "ab" padded to 4 bytes, "xyz" with a size tag, 0x0102 with a 16 bits
     // size tag, 1500 ms since the GPS epoch, pos.x from its initial value, the array,
-    // the TRAILER container padded to 32 bits and the repeated argument
+    // and rep from its initial value
     assert_eq!(
-        "c64408616200000378797a00020102000005dc01ff010203ab0000000707",
+        "c64408616200000378797a00020102000005dc01ff01020307",
         hex(&mdb, "/P3/CMD_STRUCT", &a)
     );
 
@@ -187,6 +188,14 @@ fn structured_arguments() {
     let pos2 = Value::Aggregate(Box::new(AggregateValue(HashMap::from([(name("x"), Value::Int64(1))]))));
     assert!(is_arg_error(with("pos", pos2)));
     assert!(is_arg_error(with("t", s("yesterday"))));
+}
+
+/// a command container from the CommandContainerSet and a repeated argument (not supported by Yamcs)
+#[test]
+fn tc_extensions() {
+    let mdb = load("test-xtce-files/tc-extensions.xml");
+    // the TRAILER container is padded to 32 bits, the last argument is repeated twice
+    assert_eq!("05ab0000000505", hex(&mdb, "/CCS/CMD", &[("a", Value::Uint64(5))]));
 }
 
 #[test]

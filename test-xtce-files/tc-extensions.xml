@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Command encoding features supported by xtce-rs but not by Yamcs:
+     - command containers defined in the CommandContainerSet (Yamcs skips the CommandContainerSet)
+     - RepeatEntry in the command containers (ignored by Yamcs) -->
+<SpaceSystem name="CCS" xmlns="http://www.omg.org/spec/XTCE/20180204">
+	<CommandMetaData>
+		<ArgumentTypeSet>
+			<IntegerArgumentType name="u8_t" signed="false" sizeInBits="8">
+				<IntegerDataEncoding sizeInBits="8" />
+			</IntegerArgumentType>
+		</ArgumentTypeSet>
+		<MetaCommandSet>
+			<MetaCommand name="CMD">
+				<ArgumentList>
+					<Argument name="a" argumentTypeRef="u8_t" />
+				</ArgumentList>
+				<CommandContainer name="CMD">
+					<EntryList>
+						<ArgumentRefEntry argumentRef="a" />
+						<ContainerRefEntry containerRef="TRAILER" />
+						<ArgumentRefEntry argumentRef="a">
+							<RepeatEntry>
+								<Count>
+									<FixedValue>2</FixedValue>
+								</Count>
+							</RepeatEntry>
+						</ArgumentRefEntry>
+					</EntryList>
+				</CommandContainer>
+			</MetaCommand>
+		</MetaCommandSet>
+		<CommandContainerSet>
+			<CommandContainer name="TRAILER">
+				<BinaryEncoding>
+					<SizeInBits>
+						<FixedValue>32</FixedValue>
+					</SizeInBits>
+				</BinaryEncoding>
+				<EntryList>
+					<FixedValueEntry name="marker" binaryValue="AB" sizeInBits="8" />
+				</EntryList>
+			</CommandContainer>
+		</CommandContainerSet>
+	</CommandMetaData>
+</SpaceSystem>

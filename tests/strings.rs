@@ -1,6 +1,10 @@
 use std::{path::Path};
 
-use xtce_rs::{mdb::MissionDatabase, parser, proc::containers::process};
+use xtce_rs::{
+    mdb::{MissionDatabase, NamedItem},
+    parser,
+    proc::containers::process,
+};
 static INIT: std::sync::Once = std::sync::Once::new();
 
 pub fn init_logging() {
@@ -30,13 +34,21 @@ fn test_bogus2() {
     ];
 
     let root_container = mdb.search_container("/BogusSAT/CCSDSPacket").unwrap();
-    let r = process(&mdb, &packet, root_container).unwrap();
+    // the mission constant APPL_TIME_CODE has the initial value CUC so the PUS_Time is expected
+    // but the packet is too short (Yamcs gives an error as well)
+    assert!(process(&mdb, &packet, root_container).is_err());
 
+    let mut packet = packet[..11].to_vec();
+    packet.extend_from_slice(&[0, 0, 0, 1, 0, 0, 0, 0]);
+    let r = process(&mdb, &packet, root_container).unwrap();
     for pv in &r {
         println!("{:?}", pv.dbg(&mdb));
     }
-
-    assert_eq!(4, r.len());
+    let names: Vec<&str> = r.iter().map(|pv| mdb.name2str(mdb.get_parameter(pv.pidx).name())).collect();
+    assert_eq!(
+        vec!["CCSDS_Packet_ID", "CCSDS_Packet_Sequence", "CCSDS_Packet_Length", "PUS_Data_Field_Header", "PUS_Time"],
+        names
+    );
 
     //println!("container result: {:?}", r);
 }

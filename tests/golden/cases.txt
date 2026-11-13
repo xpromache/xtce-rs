@@ -1,0 +1,117 @@
+# Golden cases: run through Yamcs by tools/yamcs-golden/generate.sh producing expected.txt,
+# compared with the xtce-rs results by tests/golden.rs.
+#
+# tm | file | start container | packet hex
+# tmrand | file | start container | prefix hex | total length | count     (random packets with the given prefix)
+# tc | file | command | arg=value ; arg=value
+
+# ---- phase2.xml: value types, times, validity
+tm | phase2.xml | /P2/root | 0100000001000000050fffffffff05fb0303
+tm | phase2.xml | /P2/root | 01ffffffffffffffffffffffff7f80ff01
+tm | phase2.xml | /P2/root | 02000007d06553f1003fc000000a
+tm | phase2.xml | /P2/root | 03003200
+tm | phase2.xml | /P2/root | 03025f00
+tm | phase2.xml | /P2/root | 0300fa07
+tm | phase2.xml | /P2/root | 03070000
+tm | phase2.xml | /P2/root | 04070063
+tmrand | phase2.xml | /P2/root | 01 | 19 | 10
+tmrand | phase2.xml | /P2/root | 02 | 14 | 10
+tmrand | phase2.xml | /P2/root | 03 | 4 | 10
+
+# ---- phase1.xml: calibrators, structures
+# (the struct container is not used with a count > 0 because Yamcs ignores the Offset of the RepeatEntry)
+tm | phase1.xml | /P1/root | 01c8002800640710050300feff
+tm | phase1.xml | /P1/root | 059600280064070f0503feff
+tm | phase1.xml | /P1/root | 0506
+tm | phase1.xml | /P1/root | 00c8010203
+tm | phase1.xml | /P1/root | 0000010211090000
+tmrand | phase1.xml | /P1/root | 01c8 | 13 | 10
+
+# ---- ref-xtce.xml
+tm | ref-xtce.xml | /RefXtce/packet1 | 03010203
+tm | ref-xtce.xml | /RefXtce/packet3 | 0102030405060708
+tm | ref-xtce.xml | /RefXtce/packet4 | 3130300000002d332e313400
+tmrand | ref-xtce.xml | /RefXtce/packet1 | | 8 | 5
+tmrand | ref-xtce.xml | /RefXtce/packet2 | | 16 | 5
+tmrand | ref-xtce.xml | /RefXtce/packet3 | | 16 | 5
+
+# ---- strings-tm.xml
+tm | strings-tm.xml | /StringsTm/packet1 | 6162000000000102
+tm | strings-tm.xml | /StringsTm/packet1 | 6162636465660102
+tmrand | strings-tm.xml | /StringsTm/packet2 | | 16 | 3
+tmrand | strings-tm.xml | /StringsTm/packet3 | | 16 | 3
+tmrand | strings-tm.xml | /StringsTm/packet4 | | 16 | 3
+tmrand | strings-tm.xml | /StringsTm/packet5 | | 16 | 3
+
+# ---- simulator.xml
+tm | simulator.xml | /YSS/SIMULATOR/DHS | 0801fff50015517e58c1b065000000020401050105010402000074b6
+tm | simulator.xml | /YSS/SIMULATOR/FlightData | 0801fb7e0047517e74b4b36500000021435dc000c27265604254e148458ccd9a41ddb43940314c983e00c49c42ec8a3d42ec8a3d3ebbbecb3f7ec02f4238333340af2a30c1ad70a441ddb4390520
+tmrand | simulator.xml | /YSS/SIMULATOR/FlightData | 0801fb7e0047517e74b4b36500000021 | 72 | 5
+tmrand | simulator.xml | /YSS/SIMULATOR/Power | | 40 | 5
+tmrand | simulator.xml | /YSS/SIMULATOR/EPS | | 60 | 5
+
+# ---- BogusSAT-2.xml
+tm | BogusSAT-2.xml | /BogusSAT/CCSDSPacket | 0823c056000535102003050000
+# (packets containing PUS_Time are not used: its epoch is a date without time which Yamcs cannot parse)
+tm | BogusSAT-2.xml | /BogusSAT/CCSDSPacket | 0004c0000000010000000180000005fffffffbfffffffa3fc000004004000000000000000100010001
+tm | BogusSAT-2.xml | /BogusSAT/CCSDSPacket | 0004c0000000003fc000004004000000000000000100010001
+tmrand | BogusSAT-2.xml | /BogusSAT/CCSDSPacket | 0001c000 | 40 | 5
+tmrand | BogusSAT-2.xml | /BogusSAT/CCSDSPacket | 0002c000 | 40 | 5
+tmrand | BogusSAT-2.xml | /BogusSAT/CCSDSPacket | 0005c000 | 40 | 5
+tmrand | BogusSAT-2.xml | /BogusSAT/CCSDSPacket | 0006c000 | 64 | 5
+
+# ---- commands: simulator.xml
+tc | simulator.xml | /YSS/SIMULATOR/SWITCH_VOLTAGE_ON | voltage_num=1
+tc | simulator.xml | /YSS/SIMULATOR/SWITCH_VOLTAGE_ON | voltage_num=3
+tc | simulator.xml | /YSS/SIMULATOR/SWITCH_VOLTAGE_ON | voltage_num=100
+tc | simulator.xml | /YSS/SIMULATOR/SWITCH_VOLTAGE_ON |
+tc | simulator.xml | /YSS/SIMULATOR/SWITCH_VOLTAGE_OFF | voltage_num=2
+tc | simulator.xml | /YSS/SIMULATOR/SWITCH_VOLTAGE_ON_ENUM | voltage_num=BACKUP
+tc | simulator.xml | /YSS/SIMULATOR/SWITCH_VOLTAGE_ON_ENUM | voltage_num=NOSUCH
+tc | simulator.xml | /YSS/SIMULATOR/DOWNLOAD_FILE | filename=a.txt
+tc | simulator.xml | /YSS/SIMULATOR/CRITICAL_TC1 | p1=2
+tc | simulator.xml | /YSS/SIMULATOR/CRITICAL_TC2 | p1=2
+tc | simulator.xml | /YSS/SIMULATOR/DUMP_RECORDING | recording_name=rec1
+tc | simulator.xml | /YSS/SIMULATOR/LIST_RECORDINGS |
+tc | simulator.xml | /YSS/SIMULATOR/DELETE_RECORDING | recording_name=rec1
+
+# ---- commands: ref-xtce.xml
+tc | ref-xtce.xml | /RefXtce/command1 | t1=2020-01-01T00:00:00Z ; t2=2020-01-01T00:00:00.500Z
+tc | ref-xtce.xml | /RefXtce/command2 | arg1={"m1": 1, "m2": 2.5}
+tc | ref-xtce.xml | /RefXtce/command3 | arg1=010203
+tc | ref-xtce.xml | /RefXtce/command4 |
+tc | ref-xtce.xml | /RefXtce/vital_command | arg1=7
+tc | ref-xtce.xml | /RefXtce/cmd_with_constraint1 | arg1=7
+
+# ---- commands: BogusSAT-2.xml
+tc | BogusSAT-2.xml | /BogusSAT/SC001/BusElectronics/Reaction_Wheel_1_On |
+tc | BogusSAT-2.xml | /BogusSAT/SC001/BusElectronics/Reaction_Wheel_2_Off |
+tc | BogusSAT-2.xml | /BogusSAT/SC001/BusElectronics/Set_Mission_Phase | PHASE=LEOP
+tc | BogusSAT-2.xml | /BogusSAT/SC001/Payload1/Payload_1_Control | STATE=ON ; OUTPUT_POWER=5
+
+# ---- commands: phase3.xml
+# Not covered because of Yamcs limitations (xtce-rs follows XTCE and reports an error or encodes correctly):
+#  - negative values with sign magnitude or ones complement encodings (Yamcs encodes them as twos complement)
+#  - SizeRangeInBytes for binary arguments (ignored by the Yamcs XTCE loader)
+#  - calibrated raw values or times not fitting in the encoding (Yamcs silently truncates them)
+#  - RepeatEntry and CommandContainerSet (ignored by Yamcs), see tc-extensions.xml
+tc | phase3.xml | /P3/BASE | type_id=1
+tc | phase3.xml | /P3/CMD_NUMERIC | s16le=-2 ; sm8=3 ; f32=1.5 ; volt=12.25 ; temp=125 ; mode=STANDBY
+tc | phase3.xml | /P3/CMD_NUMERIC | s16le=-2 ; sm8=3 ; f32=1.5 ; volt=12.25 ; temp=125
+tc | phase3.xml | /P3/CMD_NUMERIC | s16le=0 ; sm8=0 ; f32=0 ; volt=60 ; temp=0
+tc | phase3.xml | /P3/CMD_NUMERIC | s16le=40000 ; sm8=0 ; f32=0 ; volt=0 ; temp=0
+tc | phase3.xml | /P3/CMD_NUMERIC | s16le=1 ; sm8=1 ; f32=1 ; volt=0 ; temp=0 ; flag=false ; apid=2047
+tc | phase3.xml | /P3/CMD_NUMERIC | s16le=1 ; sm8=1 ; f32=1 ; volt=0 ; temp=0 ; type_id=5
+tc | phase3.xml | /P3/CMD_NUMERIC | s16le=1 ; sm8=1 ; f32=abc ; volt=0 ; temp=0
+tc | phase3.xml | /P3/CMD_NUMERIC | s16le=1 ; sm8=1 ; f32=1 ; volt=0
+tc | phase3.xml | /P3/CMD_STRUCT | name_fixed=ab ; name_var=xyz ; blob=0102 ; t=1980-01-20T00:00:00.123Z ; pos={"x": 2, "y": -3} ; arr=[1, 2, 3]
+tc | phase3.xml | /P3/CMD_STRUCT | name_fixed=abcd ; name_var=x ; blob= ; t=1980-01-06T00:00:01.250Z ; pos={"y": 4} ; arr=[7, 8, 9]
+tc | phase3.xml | /P3/CMD_STRUCT | name_fixed=ab ; name_var=toolongname ; blob=0102 ; t=1980-01-20T00:00:00.123Z ; pos={"x": 2, "y": -3} ; arr=[1, 2, 3]
+tc | phase3.xml | /P3/CMD_STRUCT | name_fixed=ab ; name_var=xyz ; blob=0102 ; t=1980-01-20T00:00:00.123Z ; pos={"x": 2, "y": -3} ; arr=[1, 2]
+tc | phase3.xml | /P3/CMD_LOCATION | a=255
+tc | phase3.xml | /P3/CMD_POLY2 | x=10
+tc | phase3.xml | /P3/CMD_POLY2 | x=2.5
+tc | phase3.xml | /P3/CMD_STRUCT | name_fixed=ab ; name_var=xyz ; blob=0102 ; t=1980-01-20T00:00:00.123Z ; pos={"z": 2} ; arr=[1, 2, 3]
+tc | phase3.xml | /P3/CMD_STRUCT | name_fixed=ab ; name_var=xyz ; blob=0102 ; t=1980-01-20T00:00:00.123Z ; pos={"x": "5", "y": "6"} ; arr=["1", "2", "3"]
+tc | phase3.xml | /P3/CMD_STRUCT | name_fixed=ab ; name_var=xyz ; blob=0102 ; t=1980-01-20T00:00:00.123Z ; pos=[1, 2] ; arr=[1, 2, 3]
+tc | phase3.xml | /P3/CMD_STRUCT | name_fixed=ab ; name_var=xyz ; blob=0102 ; t=1980-01-20T00:00:00.123Z ; pos={"x": 1, "y": 2} ; arr=[1, 2, 300]

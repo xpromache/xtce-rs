@@ -51,6 +51,22 @@ impl ParameterCache {
     }
 }
 
+/// Like in Yamcs, the cache initially contains the initial values of the parameters whose types define one
+/// (e.g. the mission constants used in the include conditions).
+fn initial_cache(mdb: &MissionDatabase) -> ParameterCache {
+    let mut cache = ParameterCache::new();
+    for (i, p) in mdb.parameters.iter().enumerate() {
+        let Some(ptype) = p.ptype else { continue };
+        let dtype = mdb.get_data_type(ptype);
+        let Some(iv) = &dtype.initial_value else { continue };
+        match crate::tc::args::to_eng_value(mdb, dtype, &Value::StringValue(Box::new(iv.clone()))) {
+            Ok(v) => cache.add(ParameterValue::with_raw(ParameterIdx::new(i), None, v), 1),
+            Err(e) => log::warn!("Invalid initial value '{}' for parameter {}: {}", iv, mdb.name2str(p.name()), e),
+        }
+    }
+    cache
+}
+
 /// Telemetry processor: extracts the parameters from packets and keeps the state required for
 /// the references to previous parameter values and for the algorithms.
 pub struct TmProcessor<'a> {
@@ -65,7 +81,7 @@ impl<'a> TmProcessor<'a> {
     pub fn new(mdb: &'a MissionDatabase) -> Result<Self> {
         let pdata = ProcessorData::new(mdb)?;
         let algo_inputs = mdb.algorithms.iter().map(|a| vec![0.0; a.inputs.len()]).collect();
-        Ok(TmProcessor { mdb, pdata, cache: ParameterCache::new(), algo_inputs })
+        Ok(TmProcessor { mdb, pdata, cache: initial_cache(mdb), algo_inputs })
     }
 
     pub fn cache(&self) -> &ParameterCache {

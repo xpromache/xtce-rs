@@ -11,7 +11,7 @@ use std::fmt::Formatter;
 
 use lasso::{Key, ThreadedRodeo};
 
-use self::commands::{CommandContainer, CommandContainerIdx, MetaCommand, MetaCommandIdx};
+pub use self::commands::{CommandContainer, CommandContainerIdx, MetaCommand, MetaCommandIdx};
 use self::types::{DataType, MemberPath};
 
 pub(crate) type NameIdx = lasso::Spur;

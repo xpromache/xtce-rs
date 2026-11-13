@@ -18,6 +18,7 @@
 //! ```
 
 pub mod args;
+mod json;
 pub mod encodings;
 
 use std::collections::HashMap;

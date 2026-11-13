@@ -250,7 +250,8 @@ pub(super) fn read_binary_data_encoding(
     for cnode in children(&node) {
         match cnode.tag_name().name() {
             "SizeInBits" => {
-                // Yamcs extension: <LeadingSize sizeInBitsOfSizeTag="x"/> inside SizeInBits
+                // non standard extension (not supported by Yamcs which uses the LeadingSizeBinaryDecoder algorithm):
+                // <LeadingSize sizeInBitsOfSizeTag="x"/> inside SizeInBits
                 if let Some(lsnode) = children(&cnode).find(|n| n.tag_name().name() == "LeadingSize") {
                     let tag_bits = read_attribute::<u32>(&lsnode, "sizeInBitsOfSizeTag")?.unwrap_or(16);
                     check_size_tag(tag_bits, &lsnode)?;
