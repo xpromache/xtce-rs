@@ -362,7 +362,7 @@ fn parse_leading_size(node: &Node) -> Result<u32> {
 }
 fn parse_terminator_char(node: &Node) -> Result<u8> {
     let hexv = read_mandatory_text::<String>(node)?;
-    let v = hex::decode(&hexv).or_else(|_e| {
+    let v = crate::mdb::types::unhex(&hexv).or_else(|_e| {
         return Err(get_parse_error(format!("Cannot decode string as hex: '{}'", &hexv), node));
     })?;
     if v.len() != 1 {

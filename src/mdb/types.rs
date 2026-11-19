@@ -539,8 +539,18 @@ fn parse_float(value: &str) -> Result<Value> {
         .map_err(|e| MdbError::InvalidValue(format!("Invalid float value '{}': {}", value, e)))
 }
 
+/// Hexadecimal to bytes like Yamcs (HexUtils.unhex): an odd number of digits gets a leading 0 ("0" is 0x00)
+pub fn unhex(s: &str) -> std::result::Result<Vec<u8>, hex::FromHexError> {
+    let s = s.trim();
+    if s.len() % 2 == 1 {
+        hex::decode(format!("0{s}"))
+    } else {
+        hex::decode(s)
+    }
+}
+
 fn parse_binary(value: &str) -> Result<Value> {
-    hex::decode(value.trim())
+    unhex(value)
         .map(|b| Value::Binary(Box::new(b)))
         .map_err(|e| MdbError::InvalidValue(format!("Invalid hex binary value '{}': {}", value, e)))
 }
@@ -711,3 +721,14 @@ impl PathElement {
     }
 }
 pub type MemberPath = Vec<PathElement>;
+
+#[cfg(test)]
+mod unhex_tests {
+    #[test]
+    fn unhex() {
+        assert_eq!(vec![0], super::unhex("0").unwrap());
+        assert_eq!(vec![0x0a, 0xbc], super::unhex(" abc ").unwrap());
+        assert_eq!(vec![0x12], super::unhex("12").unwrap());
+        assert!(super::unhex("x").is_err());
+    }
+}
