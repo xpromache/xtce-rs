@@ -75,11 +75,14 @@ pub struct ProcessOptions {
     pub details: bool,
     /// run the algorithms triggered by the extracted parameters (on by default)
     pub algorithms: bool,
+    /// keep the values in the cache of the previous values (on by default); off to decode packets
+    /// independently of each other, in any order
+    pub update_cache: bool,
 }
 
 impl Default for ProcessOptions {
     fn default() -> Self {
-        ProcessOptions { details: false, algorithms: true }
+        ProcessOptions { details: false, algorithms: true, update_cache: true }
     }
 }
 
@@ -214,9 +217,11 @@ impl<'a> TmProcessor<'a> {
 
         let details = ctx.details.take();
         let result = ctx.result;
-        for pv in result.iter() {
-            let depth = self.mdb.history_depth.get(&pv.pidx).copied().unwrap_or(0) + 1;
-            self.cache.add(pv.clone(), depth);
+        if opts.update_cache {
+            for pv in result.iter() {
+                let depth = self.mdb.history_depth.get(&pv.pidx).copied().unwrap_or(0) + 1;
+                self.cache.add(pv.clone(), depth);
+            }
         }
 
         let Details { mut positions, containers, mut alarm_ranges } = details.unwrap_or_default();

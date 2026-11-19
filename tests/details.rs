@@ -150,8 +150,21 @@ fn without_algorithms() {
     let i = name(&r).iter().position(|n| n == "sum").unwrap();
     assert!(r.positions[i].is_none());
 
-    let opts = ProcessOptions { details: true, algorithms: false };
+    let opts = ProcessOptions { details: true, algorithms: false, ..Default::default() };
     let r = process(&mdb, "/P2/root", &[3, 0, 50, 7], &opts);
     assert!(!name(&r).contains(&"sum".to_owned()));
     assert!(r.positions.iter().all(|p| p.is_some()));
+}
+
+#[test]
+fn without_cache_update() {
+    let mdb = load("test-xtce-files/phase2.xml");
+    let root = mdb.search_container("/P2/root").unwrap();
+    let pidx = mdb.search_parameter("/P2/counter").unwrap();
+    let mut tmp = TmProcessor::new(&mdb).unwrap();
+    let opts = ProcessOptions { update_cache: false, ..Default::default() };
+    tmp.process_with(&[3, 0, 50, 7], root, INVALID_INSTANT, INVALID_INSTANT, &opts).unwrap();
+    assert!(tmp.cache().last_value(pidx).is_none());
+    tmp.process(&[3, 0, 50, 7], root, INVALID_INSTANT, INVALID_INSTANT).unwrap();
+    assert!(tmp.cache().last_value(pidx).is_some());
 }
