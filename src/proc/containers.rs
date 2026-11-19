@@ -37,6 +37,20 @@ pub(crate) fn extract(ctx: &mut ProcCtx, root_container: ContainerIdx) -> Result
 fn extract_container(ctx: &mut ProcCtx, container: &SequenceContainer) -> Result<()> {
     let mdb = ctx.mdb();
     log::debug!("Extracting container {}", mdb.name2str(container.name()));
+    if let Some(details) = ctx.details.as_mut() {
+        details.containers.push(super::MatchedContainer {
+            container: container.idx,
+            start: ctx.cbuf.start_offset,
+        });
+    }
+    let parent_container = ctx.current_container.replace(container.idx);
+    let r = extract_container_entries(ctx, container);
+    ctx.current_container = parent_container;
+    r
+}
+
+fn extract_container_entries(ctx: &mut ProcCtx, container: &SequenceContainer) -> Result<()> {
+    let mdb = ctx.mdb();
 
     // the maximum position reached by any entry (entries can be positioned relative to the container start)
     let mut max_pos = ctx.cbuf.get_position();
@@ -238,9 +252,11 @@ fn extract_array_parameter(ape: &ArrayParameterRefEntry, ctx: &mut ProcCtx) -> R
     }
 
     ctx.pidx.replace(pidx);
+    let start_bit = ctx.cbuf.get_position();
     let (raw_value, _cpos) = types::extract_array(atype, dims, ctx)?;
     let eng_value = types::calibrate(&raw_value, dtype, ctx)?;
     ctx.result.push(ParameterValue::new(pidx, raw_value, eng_value));
+    ctx.record_position(start_bit);
     ctx.pidx.take();
 
     Ok(())
@@ -257,12 +273,14 @@ fn extract_parameter(pidx: ParameterIdx, ctx: &mut ProcCtx) -> Result<()> {
     )))?;
     let dtype = mdb.get_data_type(ptype_idx);
 
+    let start_bit = ctx.cbuf.get_position();
     let (raw_value, _cpos) = types::extract(dtype, ctx)?;
     let eng_value = types::calibrate(&raw_value, dtype, ctx)?;
 
     let pv = ParameterValue::new(pidx, raw_value, eng_value);
 
     ctx.result.push(pv);
+    ctx.record_position(start_bit);
     ctx.pidx.take();
 
     Ok(())

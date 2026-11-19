@@ -67,6 +67,73 @@ fn initial_cache(mdb: &MissionDatabase) -> ParameterCache {
     cache
 }
 
+/// Options for [TmProcessor::process_with].
+#[derive(Debug, Clone)]
+pub struct ProcessOptions {
+    /// collect the positions of the extracted values, the matched containers and the alarm ranges
+    /// (see [TmResult]); off by default because it costs some time and memory
+    pub details: bool,
+    /// run the algorithms triggered by the extracted parameters (on by default)
+    pub algorithms: bool,
+}
+
+impl Default for ProcessOptions {
+    fn default() -> Self {
+        ProcessOptions { details: false, algorithms: true }
+    }
+}
+
+/// Where a parameter value was extracted from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EntryPosition {
+    /// the container which contains the entry (for an inherited entry: the base container defining it)
+    pub container: ContainerIdx,
+    /// the offset in bytes in the packet where that container starts
+    /// (non zero for containers included with a ContainerRefEntry)
+    pub container_start: u32,
+    /// the offset in bits from the beginning of the packet
+    pub bit_offset: u32,
+    /// the number of bits extracted
+    pub bit_size: u32,
+}
+
+/// A container extracted from the packet: the root, the matching inheriting containers and the included
+/// containers, in the order of extraction (a container is listed before the ones inheriting from it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MatchedContainer {
+    pub container: ContainerIdx,
+    /// the offset in bytes in the packet where the container starts
+    pub start: u32,
+}
+
+#[derive(Default)]
+pub(crate) struct Details {
+    pub(crate) positions: Vec<Option<EntryPosition>>,
+    pub(crate) containers: Vec<MatchedContainer>,
+    pub(crate) alarm_ranges: Vec<Option<AlarmRanges>>,
+}
+
+/// The result of [TmProcessor::process_with].
+pub struct TmResult {
+    pub params: ParameterValueList,
+    /// with [ProcessOptions::details]: for each value in `params` (same index), where it was extracted from;
+    /// None for the values not extracted from the packet (algorithm outputs). Empty otherwise.
+    pub positions: Vec<Option<EntryPosition>>,
+    /// with [ProcessOptions::details]: the extracted containers. Empty otherwise.
+    pub containers: Vec<MatchedContainer>,
+    /// with [ProcessOptions::details]: for each value in `params`, the static alarm ranges applied to it
+    /// (the context alarm matching, or else the default alarm); None if it has no numeric alarm. Empty otherwise.
+    pub alarm_ranges: Vec<Option<AlarmRanges>>,
+}
+
+impl TmResult {
+    /// the packet name like in the Yamcs packet viewer: the last container extracted starting at the
+    /// beginning of the packet (the most specialized one). Requires [ProcessOptions::details].
+    pub fn packet_container(&self) -> Option<ContainerIdx> {
+        self.containers.iter().filter(|c| c.start == 0).last().map(|c| c.container)
+    }
+}
+
 /// Telemetry processor: extracts the parameters from packets and keeps the state required for
 /// the references to previous parameter values and for the algorithms.
 pub struct TmProcessor<'a> {
@@ -102,6 +169,19 @@ impl<'a> TmProcessor<'a> {
         generation_time: i64,
         acquisition_time: i64,
     ) -> Result<ParameterValueList> {
+        let opts = ProcessOptions::default();
+        Ok(self.process_with(packet, root_container, generation_time, acquisition_time, &opts)?.params)
+    }
+
+    /// Like [TmProcessor::process], with options; see [ProcessOptions] and [TmResult].
+    pub fn process_with(
+        &mut self,
+        packet: &[u8],
+        root_container: ContainerIdx,
+        generation_time: i64,
+        acquisition_time: i64,
+        opts: &ProcessOptions,
+    ) -> Result<TmResult> {
         if packet.len() > containers::MAX_PACKET_SIZE {
             return Err(ProcError::OutOfBounds(format!(
                 "Packet too long: {} bytes; max size is {}",
@@ -116,6 +196,8 @@ impl<'a> TmProcessor<'a> {
             result: ParameterValueList::new(),
             pidx: None,
             cache: &self.cache,
+            details: if opts.details { Some(Details::default()) } else { None },
+            current_container: None,
         };
         containers::extract(&mut ctx, root_container)?;
 
@@ -125,16 +207,24 @@ impl<'a> TmProcessor<'a> {
             pv.acquisition_time = acquisition_time;
         }
 
-        run_algorithms(&mut ctx, &mut self.algo_inputs, generation_time, acquisition_time);
+        if opts.algorithms {
+            run_algorithms(&mut ctx, &mut self.algo_inputs, generation_time, acquisition_time);
+        }
         check_values(&mut ctx);
 
+        let details = ctx.details.take();
         let result = ctx.result;
         for pv in result.iter() {
             let depth = self.mdb.history_depth.get(&pv.pidx).copied().unwrap_or(0) + 1;
             self.cache.add(pv.clone(), depth);
         }
 
-        Ok(result)
+        let Details { mut positions, containers, mut alarm_ranges } = details.unwrap_or_default();
+        if opts.details {
+            positions.resize(result.len(), None);
+            alarm_ranges.resize(result.len(), None);
+        }
+        Ok(TmResult { params: result, positions, containers, alarm_ranges })
     }
 }
 
@@ -213,6 +303,7 @@ struct CheckResult {
 fn check_values(ctx: &mut ProcCtx) {
     let mdb = ctx.mdb;
     let mut results = Vec::with_capacity(ctx.result.len());
+    let mut ranges = Vec::new();
     for (i, pv) in ctx.result.iter().enumerate() {
         let param = mdb.get_parameter(pv.pidx);
         let Some(dtype) = param.ptype.map(|t| mdb.get_data_type(t)) else {
@@ -222,6 +313,17 @@ fn check_values(ctx: &mut ProcCtx) {
         let monitoring = check_alarms(pv, dtype, ctx);
         if invalid || monitoring.is_some() {
             results.push((i, CheckResult { invalid, monitoring }));
+        }
+        if ctx.details.is_some() {
+            if let Some(alarm) = numeric_alarm(dtype, ctx) {
+                ranges.push((i, alarm.static_alarm_ranges.clone()));
+            }
+        }
+    }
+    if let Some(details) = ctx.details.as_mut() {
+        for (i, r) in ranges {
+            details.alarm_ranges.resize(i, None);
+            details.alarm_ranges.push(Some(r));
         }
     }
     for (i, cr) in results {
@@ -259,23 +361,8 @@ fn check_alarms(
 ) -> Option<(MonitoringResult, Option<RangeCondition>)> {
     let matches = |mc| ctx.pdata.get_criteria_evaluator(mc).evaluate(ctx) == MatchResult::OK;
     match &dtype.type_data {
-        TypeData::Integer(idt) => {
-            let alarm = idt
-                .context_alarm
-                .iter()
-                .find(|ca| matches(ca.context))
-                .map(|ca| &ca.alarm)
-                .or(idt.default_alarm.as_ref())?;
-            check_numeric_alarm(&pv.eng_value, alarm)
-        }
-        TypeData::Float(fdt) => {
-            let alarm = fdt
-                .context_alarm
-                .iter()
-                .find(|ca| matches(ca.context))
-                .map(|ca| &ca.alarm)
-                .or(fdt.default_alarm.as_ref())?;
-            check_numeric_alarm(&pv.eng_value, alarm)
+        TypeData::Integer(_) | TypeData::Float(_) => {
+            check_numeric_alarm(&pv.eng_value, numeric_alarm(dtype, ctx)?)
         }
         TypeData::Enumerated(edt) => {
             let alarm = edt
@@ -286,6 +373,26 @@ fn check_alarms(
                 .or(edt.default_alarm.as_ref())?;
             check_enumeration_alarm(&pv.eng_value, alarm)
         }
+        _ => None,
+    }
+}
+
+/// the numeric alarm applicable in the current context: the first matching context alarm or else the default one
+fn numeric_alarm<'a>(dtype: &'a DataType, ctx: &ProcCtx) -> Option<&'a NumericAlarm> {
+    let matches = |mc| ctx.pdata.get_criteria_evaluator(mc).evaluate(ctx) == MatchResult::OK;
+    match &dtype.type_data {
+        TypeData::Integer(idt) => idt
+            .context_alarm
+            .iter()
+            .find(|ca| matches(ca.context))
+            .map(|ca| &ca.alarm)
+            .or(idt.default_alarm.as_ref()),
+        TypeData::Float(fdt) => fdt
+            .context_alarm
+            .iter()
+            .find(|ca| matches(ca.context))
+            .map(|ca| &ca.alarm)
+            .or(fdt.default_alarm.as_ref()),
         _ => None,
     }
 }

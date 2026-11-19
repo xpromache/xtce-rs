@@ -19,7 +19,7 @@ pub mod misc;
 pub mod tm;
 pub mod types;
 
-pub use tm::{ParameterCache, TmProcessor};
+pub use tm::{EntryPosition, MatchedContainer, ParameterCache, ProcessOptions, TmProcessor, TmResult};
 
 use thiserror::Error;
 
@@ -168,6 +168,10 @@ pub(crate) struct ProcCtx<'a, 'b, 'c, 'd> {
     pidx: Option<ParameterIdx>,
     /// values from the previous packets
     cache: &'d ParameterCache,
+    /// collected only if requested (see [ProcessOptions::details])
+    details: Option<tm::Details>,
+    /// the container whose entries are being extracted
+    current_container: Option<crate::mdb::ContainerIdx>,
 }
 
 impl<'a> ProcCtx<'a, '_, '_, '_> {
@@ -284,6 +288,22 @@ impl<'a> ProcCtx<'a, '_, '_, '_> {
                 _ => Err(not_integer()),
             }
         }
+    }
+
+    /// records the position of the value just added to the result (if the details are collected)
+    fn record_position(&mut self, start_bit: usize) {
+        let (Some(details), Some(container)) = (self.details.as_mut(), self.current_container) else {
+            return;
+        };
+        let idx = self.result.len() - 1;
+        let end_bit = self.cbuf.get_position();
+        details.positions.resize(idx, None);
+        details.positions.push(Some(tm::EntryPosition {
+            container,
+            container_start: self.cbuf.start_offset,
+            bit_offset: self.cbuf.start_offset * 8 + start_bit as u32,
+            bit_size: end_bit.saturating_sub(start_bit) as u32,
+        }));
     }
 
     fn decoding_error(&self, msg: &str) -> ProcError {      
