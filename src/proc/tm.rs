@@ -127,6 +127,8 @@ pub struct TmResult {
     /// with [ProcessOptions::details]: for each value in `params`, the static alarm ranges applied to it
     /// (the context alarm matching, or else the default alarm); None if it has no numeric alarm. Empty otherwise.
     pub alarm_ranges: Vec<Option<AlarmRanges>>,
+    /// the extraction error, if any: the other fields contain what was extracted before it
+    pub error: Option<ProcError>,
 }
 
 impl TmResult {
@@ -173,7 +175,11 @@ impl<'a> TmProcessor<'a> {
         acquisition_time: i64,
     ) -> Result<ParameterValueList> {
         let opts = ProcessOptions::default();
-        Ok(self.process_with(packet, root_container, generation_time, acquisition_time, &opts)?.params)
+        let r = self.process_with(packet, root_container, generation_time, acquisition_time, &opts)?;
+        match r.error {
+            Some(e) => Err(e),
+            None => Ok(r.params),
+        }
     }
 
     /// Like [TmProcessor::process], with options; see [ProcessOptions] and [TmResult].
@@ -202,7 +208,8 @@ impl<'a> TmProcessor<'a> {
             details: if opts.details { Some(Details::default()) } else { None },
             current_container: None,
         };
-        containers::extract(&mut ctx, root_container)?;
+        // like Yamcs, keep what was extracted before an error
+        let error = containers::extract(&mut ctx, root_container).err();
 
         for i in 0..ctx.result.len() {
             let pv = ctx.result.get_mut(i);
@@ -229,7 +236,7 @@ impl<'a> TmProcessor<'a> {
             positions.resize(result.len(), None);
             alarm_ranges.resize(result.len(), None);
         }
-        Ok(TmResult { params: result, positions, containers, alarm_ranges })
+        Ok(TmResult { params: result, positions, containers, alarm_ranges, error })
     }
 }
 

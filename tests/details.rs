@@ -168,3 +168,18 @@ fn without_cache_update() {
     tmp.process(&[3, 0, 50, 7], root, INVALID_INSTANT, INVALID_INSTANT).unwrap();
     assert!(tmp.cache().last_value(pidx).is_some());
 }
+
+#[test]
+fn partial_result_on_error() {
+    let mdb = load("test-xtce-files/simulator.xml");
+    // DHS packet truncated in the middle of the user data
+    let packet = hex::decode("0801fff50015517e58c1b065000000020401050105").unwrap();
+    let root = mdb.search_container("/YSS/ccsds-default").unwrap();
+    let mut tmp = TmProcessor::new(&mdb).unwrap();
+    let r = tmp.process_with(&packet, root, INVALID_INSTANT, INVALID_INSTANT, &details()).unwrap();
+    assert!(r.error.is_some());
+    assert_eq!("DHS", mdb.name2str(mdb.get_container(r.packet_container().unwrap()).name()));
+    assert!(r.params.len() > 6 && r.params.len() < 15, "{}", r.params.len());
+    assert_eq!(r.params.len(), r.positions.len());
+    assert!(tmp.process(&packet, root, INVALID_INSTANT, INVALID_INSTANT).is_err());
+}
