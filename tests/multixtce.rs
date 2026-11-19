@@ -35,3 +35,15 @@ fn type_defined_in_different_file() {
     assert_eq!(1, r.len());
     assert_eq!("-17", r[0].eng_value.to_string());
 }
+
+#[test]
+fn parse_from_strings() {
+    init_logging();
+    let dt = std::fs::read_to_string("test-xtce-files/multi-dt.xml").unwrap();
+    let pkt = std::fs::read_to_string("test-xtce-files/multi-pkt.xml").unwrap();
+    let mdb = parser::parse_strs(&[&dt, &pkt]).expect("multixtce strings should be valid");
+
+    let root_container = mdb.search_container("/multi-pkt/packet-signedint").unwrap();
+    let r = process(&mdb, &[0xff, 0xef], root_container).unwrap();
+    assert_eq!("-17", r[0].eng_value.to_string());
+}

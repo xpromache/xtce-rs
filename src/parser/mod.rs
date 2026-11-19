@@ -132,21 +132,22 @@ pub fn parse_str(mdb: &mut MissionDatabase, text: &str) -> Result<()> {
 }
 
 pub fn parse_files(paths: &[&Path]) -> Result<MissionDatabase> {
-    // Read all given files
-    //
-    // TODO: do this in one iter chain instead of two separate ones?
-    // ran into borrow checker complications though
-    let contents: Result<Vec<String>> = paths
+    let contents = paths
         .iter()
         .map(|&path| std::fs::read_to_string(path).map_err(XtceError::from))
-        .collect();
-    let contents = contents?;
+        .collect::<Result<Vec<String>>>()?;
+    let texts: Vec<&str> = contents.iter().map(|s| s.as_str()).collect();
+    parse_strs(&texts)
+}
 
-    let documents: Result<Vec<roxmltree::Document>> = contents
+/// Builds a mission database from several XTCE documents given as strings (e.g. received over the network).
+///
+/// The documents are loaded together: references between them are resolved like in [parse_files].
+pub fn parse_strs(texts: &[&str]) -> Result<MissionDatabase> {
+    let documents = texts
         .iter()
-        .map(|content| roxmltree::Document::parse(&content).map_err(XtceError::from))
-        .collect();
-    let documents = documents?;
+        .map(|text| roxmltree::Document::parse(text).map_err(XtceError::from))
+        .collect::<Result<Vec<roxmltree::Document>>>()?;
 
     let mut mdb = MissionDatabase::new();
     let mut name_tree = NameTree {
