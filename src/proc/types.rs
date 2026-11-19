@@ -242,6 +242,8 @@ fn from_time_raw(rawv: &Value, atype: &AbsoluteTimeDataType, ctx: &ProcCtx) -> R
     let needs_scaling = atype.scale != 1.0 || atype.offset != 0.0;
     // milliseconds since the reference time
     let offset_ms = match rawv {
+        // decoded by a time decoder (TimeBinaryDecoder): already an absolute time
+        Value::Timestamp(t) => return Ok(Value::Timestamp(*t)),
         Value::StringValue(s) => {
             // string encoded time: the value is an absolute time
             return crate::time::parse(s).map(Value::Timestamp).ok_or_else(|| {

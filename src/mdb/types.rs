@@ -197,8 +197,62 @@ pub enum BinarySize {
     LeadingSize(u32),
     /// the size in bits is given by the value of another parameter
     Dynamic(DynamicValueType),
+    /// a CUC time decoded like the Yamcs algorithm `org.yamcs.algo.TimeBinaryDecoder({type: CUC, ...})`: the size
+    /// is given by the P-field, read from the data unless implicit; the value is a timestamp
+    CucTime(CucTimeDecoder),
     /// size determined by a custom algorithm (not supported for processing); contains the algorithm text
     Custom(String),
+}
+
+/// The CUC decoding of Yamcs (`CucTimeDecoder`)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CucTimeDecoder {
+    /// the implicit P-field and its continuation; None: read from the data
+    pub implicit_pfield: Option<(u8, Option<u8>)>,
+}
+
+impl CucTimeDecoder {
+    /// Decodes the time like Yamcs: coarse * 1000 + fine (ms), the fine time rounded with
+    /// `(1000 * fine + (1 << shift)) >> shift` on at most 2 bytes. Like `TimeBinaryDecoder`, the result is used as
+    /// a Yamcs instant without applying the configured epoch. `next` gives the bytes; None if the data is invalid.
+    pub fn decode(&self, mut next: impl FnMut() -> Option<u8>) -> Option<i64> {
+        let (bt, ft) = match self.implicit_pfield {
+            // Yamcs tests the extension flag with `(pfield1 & 0x80) == 1`, which is never true: the continuation
+            // octet of an implicit P-field is ignored, here too
+            Some((p1, _)) => (1 + ((p1 >> 2) & 3) as usize, (p1 & 3) as usize),
+            None => {
+                let p = next()?;
+                let mut bt = 1 + ((p >> 2) & 3) as usize;
+                let mut ft = (p & 3) as usize;
+                if p >> 7 == 1 {
+                    let e = next()?;
+                    bt += ((e >> 6) & 3) as usize;
+                    ft += ((e >> 2) & 7) as usize;
+                }
+                if bt > 6 {
+                    return None;
+                }
+                (bt, ft)
+            }
+        };
+        let mut coarse: i64 = 0;
+        for _ in 0..bt {
+            coarse = (coarse << 8) + next()? as i64;
+        }
+        let mut fine: i64 = 0;
+        if ft > 0 {
+            let used = ft.min(2);
+            for _ in 0..used {
+                fine = (fine << 8) + next()? as i64;
+            }
+            let shift = used * 8;
+            fine = (1000 * fine + (1 << shift)) >> shift;
+            for _ in used..ft {
+                next()?;
+            }
+        }
+        Some(coarse * 1000 + fine)
+    }
 }
 
 

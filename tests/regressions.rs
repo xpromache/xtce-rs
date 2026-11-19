@@ -180,3 +180,50 @@ fn telemetry_only() {
     assert_eq!(1, process(&mdb, &[7], root).unwrap().len());
     assert!(mdb.commands.is_empty());
 }
+
+/// org.yamcs.algo.TimeBinaryDecoder (CUC) is decoded natively, like Yamcs
+#[test]
+fn time_binary_decoder() {
+    use xtce_rs::mdb::types::CucTimeDecoder;
+    let decode = |d: &CucTimeDecoder, bytes: &[u8]| {
+        let mut it = bytes.iter().copied();
+        d.decode(|| it.next())
+    };
+    let explicit = CucTimeDecoder { implicit_pfield: None };
+    // P-field 0x2d: 4 bytes coarse, 1 byte fine; Yamcs rounds 0.5 s to 501 ms
+    assert_eq!(Some(10_501), decode(&explicit, &[0x2d, 0, 0, 0, 10, 0x80]));
+    assert_eq!(None, decode(&explicit, &[0x2d, 0, 0, 0]));
+    let implicit = CucTimeDecoder { implicit_pfield: Some((0x2d, None)) };
+    assert_eq!(Some(10_501), decode(&implicit, &[0, 0, 0, 10, 0x80]));
+
+    let xtce = r#"<SpaceSystem name="tbd" xmlns="http://www.omg.org/spec/XTCE/20180204">
+      <TelemetryMetaData>
+        <ParameterTypeSet>
+          <AbsoluteTimeParameterType name="t">
+            <Encoding><BinaryDataEncoding>
+              <SizeInBits><FixedValue>-1</FixedValue></SizeInBits>
+              <FromBinaryTransformAlgorithm name="TimeBinaryDecoder">
+                <AlgorithmText language="java"> org.yamcs.algo.TimeBinaryDecoder({type: CUC, epoch: UNIX}) </AlgorithmText>
+              </FromBinaryTransformAlgorithm>
+            </BinaryDataEncoding></Encoding>
+          </AbsoluteTimeParameterType>
+          <IntegerParameterType name="u8" signed="false"><IntegerDataEncoding sizeInBits="8"/></IntegerParameterType>
+        </ParameterTypeSet>
+        <ParameterSet>
+          <Parameter name="time" parameterTypeRef="t"/>
+          <Parameter name="after" parameterTypeRef="u8"/>
+        </ParameterSet>
+        <ContainerSet>
+          <SequenceContainer name="p">
+            <EntryList><ParameterRefEntry parameterRef="time"/><ParameterRefEntry parameterRef="after"/></EntryList>
+          </SequenceContainer>
+        </ContainerSet>
+      </TelemetryMetaData>
+    </SpaceSystem>"#;
+    let mdb = parser::parse_strs(&[xtce]).unwrap();
+    let root = mdb.search_container("/tbd/p").unwrap();
+    let r = process(&mdb, &[0x2d, 0, 0, 0, 10, 0x80, 7], root).unwrap();
+    let values: Vec<String> = r.iter().map(|pv| pv.eng_value.to_string()).collect();
+    assert_eq!(xtce_rs::value::Value::Timestamp(10_501).to_string(), values[0]);
+    assert_eq!("7", values[1]);
+}

@@ -300,6 +300,9 @@ pub(super) fn read_binary_data_encoding(
                 check_size_tag(tag_bits, node)?;
                 BinarySize::LeadingSize(tag_bits)
             }
+            None if parse_time_binary_decoder(&algo).is_some() => {
+                BinarySize::CucTime(parse_time_binary_decoder(&algo).unwrap())
+            }
             None => {
                 log::warn!(
                     "Binary decoding algorithm '{}' not supported; parameters using it cannot be decoded",
@@ -348,6 +351,44 @@ fn parse_leading_size_decoder(text: &str) -> Option<u32> {
     rest.strip_prefix('(')?.strip_suffix(')')?.trim().parse().ok()
 }
 
+
+/// `org.yamcs.algo.TimeBinaryDecoder({type: CUC, epoch: UNIX, implicitPField: 0x2e})`, supported natively for the
+/// CUC type without time correlation service (`tcoService`); None for anything else
+pub(crate) fn parse_time_binary_decoder(text: &str) -> Option<crate::mdb::types::CucTimeDecoder> {
+    let text = text.trim();
+    let rest = text
+        .strip_prefix("org.yamcs.algo.TimeBinaryDecoder")
+        .or_else(|| text.strip_prefix("TimeBinaryDecoder"))?
+        .trim();
+    let args = rest.strip_prefix('(')?.strip_suffix(')')?.trim();
+    let args = if args.is_empty() { "{}" } else { args };
+    let map = args.strip_prefix('{')?.strip_suffix('}')?;
+    let mut pfield = None;
+    let mut pfield_cont = None;
+    for kv in map.split(',').map(str::trim).filter(|kv| !kv.is_empty()) {
+        let (k, v) = kv.split_once(':')?;
+        let v = v.trim().trim_matches(|c| c == '"' || c == '\'');
+        let int = |v: &str| -> Option<i64> {
+            match v.strip_prefix("0x").or_else(|| v.strip_prefix("0X")) {
+                Some(h) => i64::from_str_radix(h, 16).ok(),
+                None => v.parse().ok(),
+            }
+        };
+        match k.trim() {
+            "type" if v == "CUC" => {}
+            // not used by the Yamcs decoder
+            "epoch" => {}
+            "implicitPField" => pfield = Some(int(v)?).filter(|p| *p >= 0),
+            "implicitPFieldCont" => pfield_cont = Some(int(v)?).filter(|p| *p >= 0),
+            _ => return None,
+        }
+    }
+    let implicit_pfield = match pfield {
+        Some(p) => Some((u8::try_from(p).ok()?, pfield_cont.map(u8::try_from).transpose().ok()?)),
+        None => None,
+    };
+    Some(crate::mdb::types::CucTimeDecoder { implicit_pfield })
+}
 
 fn parse_leading_size(node: &Node) -> Result<u32> {
     let v = read_attribute::<u32>(&node, "sizeInBitsOfSizeTag")?
@@ -398,5 +439,23 @@ impl FromStr for IntegerEncodingType {
             _ => Err(XtceError::InvalidValue("please use one of unsigned, signMagnitude, towsComplement, onesComplement"
                 .to_owned())),
         }
+    }
+}
+
+#[cfg(test)]
+mod time_binary_decoder_tests {
+    use super::parse_time_binary_decoder;
+
+    #[test]
+    fn parse() {
+        let p = |s| parse_time_binary_decoder(s).map(|d| d.implicit_pfield);
+        assert_eq!(Some(None), p("org.yamcs.algo.TimeBinaryDecoder({type: CUC, epoch: UNIX})"));
+        assert_eq!(Some(None), p(" org.yamcs.algo.TimeBinaryDecoder() "));
+        assert_eq!(Some(Some((0x2e, None))), p("TimeBinaryDecoder({implicitPField: 0x2e})"));
+        assert_eq!(Some(Some((0x2e, Some(4)))), p("TimeBinaryDecoder({implicitPField: 46, implicitPFieldCont: 4})"));
+        // time correlation is not supported, nor other types
+        assert_eq!(None, p("TimeBinaryDecoder({tcoService: tco0})"));
+        assert_eq!(None, p("TimeBinaryDecoder({type: FIXED})"));
+        assert_eq!(None, p("org.yamcs.algo.Other()"));
     }
 }

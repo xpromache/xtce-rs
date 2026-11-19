@@ -314,6 +314,7 @@ fn encode_binary(bde: &BinaryDataEncoding, data: &[u8], w: &mut BitWriter) -> Re
         }
         // the size is given by another value; the data is written entirely
         BinarySize::Dynamic(_) => w.put_bytes(data)?,
+        BinarySize::CucTime(_) => return err("encoding times with TimeBinaryDecoder is not supported".to_owned()),
         BinarySize::Custom(algo) => {
             return err(format!("custom binary encoding algorithm '{}' is not supported", algo))
         }

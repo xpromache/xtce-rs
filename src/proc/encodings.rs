@@ -113,6 +113,25 @@ fn extract_binary(
                 ctx.decoding_error(&format!("invalid binary leading size {}", size_in_bytes))
             })?
         }
+        BinarySize::CucTime(dec) => {
+            if position & 7 != 0 {
+                return Err(ctx.decoding_error("the CUC time does not start at a byte boundary"));
+            }
+            let mut err = None;
+            let t = dec.decode(|| match ctx.cbuf.get_bits(8) {
+                Ok(b) => Some(b as u8),
+                Err(e) => {
+                    err.get_or_insert(e);
+                    None
+                }
+            });
+            if let Some(e) = err {
+                return Err(e);
+            }
+            let t = t.ok_or_else(|| ctx.decoding_error("invalid CUC P-field"))?;
+            let bit_size = (ctx.cbuf.get_position() - position) as u32;
+            return Ok((Value::Timestamp(t), simple_position(start_offset, position as u32, bit_size)));
+        }
         BinarySize::Custom(algo) => {
             return Err(ctx.decoding_error(&format!(
                 "custom binary decoding algorithm '{}' is not supported",

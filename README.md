@@ -37,7 +37,7 @@ and size in the packet and the container defining the entry, the extracted conta
 gives the packet name like the Yamcs packet viewer) and the applied alarm ranges; `algorithms: false` skips the
 algorithms.
 
-`parser::parse_strs` loads XTCE documents given as strings (no file system needed). The library builds for
+`parser::parse_strs` loads XTCE documents given as strings (no file system needed); `parse_strs_with(…, &ParseOptions { commands: false })` skips the `CommandMetaData`. The library builds for
 `wasm32-unknown-unknown`.
 
 `xtce_rs::format` prints values and calibrators like Yamcs (`Value.toString()`), including Java's
@@ -78,6 +78,7 @@ To see what parts of an XTCE file are not supported: `RUST_LOG=warn cargo run --
 | Integer and float encoded as strings | ✅ | |
 | Binary: fixed size, dynamic size | ✅ | |
 | Binary: Yamcs `LeadingSizeBinaryDecoder/Encoder` algorithms | ✅ | implemented natively |
+| Absolute time: Yamcs `TimeBinaryDecoder` (CUC, without `tcoService`) | ✅ | implemented natively, as Yamcs (the `epoch` option is ignored) |
 | Other custom (Java) transform algorithms | ❌ | |
 | Boolean encoding | ✅ | |
 | Calibrators: polynomial, spline, MathOperation | ✅ | |
