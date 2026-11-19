@@ -6,6 +6,8 @@ use super::{utils::read_mandatory_name, XtceError};
 
 pub(crate) struct NameTree {
     pub name_db: NameDb,
+    /// read the CommandMetaData sections
+    pub commands: bool,
     pub systems:
         HashMap<QualifiedName, EnumMap<NameReferenceType, HashMap<NameIdx, (usize, roxmltree::NodeId)>>>,
 }
@@ -228,7 +230,9 @@ pub(crate) fn build_name_tree(
             "CommandMetaData" => {
                 // the parameter types, parameters and containers defined in the command section
                 // are added to the MDB like the telemetry ones
-                build_tm_name_tree(tree, path, doc_id, &cnode)?;
+                if tree.commands {
+                    build_tm_name_tree(tree, path, doc_id, &cnode)?;
+                }
             }
             "" | "Header" | "LongDescription" | "AliasSet" | "AncillaryDataSet" => {}
             _ => log::warn!("ignoring global property '{}'", cnode.tag_name().name()),
@@ -322,6 +326,7 @@ mod tests {
     #[test]
     fn test_find_sysref() {
         let mut ntree = NameTree {
+            commands: true,
             name_db: Arc::new(ThreadedRodeo::<NameIdx>::new()),
             systems: HashMap::new(),
         };

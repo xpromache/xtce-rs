@@ -142,3 +142,41 @@ fn linear_adjustment_without_slope() {
     // 3 elements: indices 0..=n-1
     assert_eq!("99", after.eng_value.to_string());
 }
+
+/// A telemetry-only load ignores the CommandMetaData, even what xtce-rs cannot read (ArgumentInstanceRef in an
+/// argument type, as in the PUS example of Yamcs)
+#[test]
+fn telemetry_only() {
+    let xtce = r#"<SpaceSystem name="tmo" xmlns="http://www.omg.org/spec/XTCE/20180204">
+      <TelemetryMetaData>
+        <ParameterTypeSet>
+          <IntegerParameterType name="u8" signed="false"><IntegerDataEncoding sizeInBits="8"/></IntegerParameterType>
+        </ParameterTypeSet>
+        <ParameterSet><Parameter name="x" parameterTypeRef="u8"/></ParameterSet>
+        <ContainerSet>
+          <SequenceContainer name="p"><EntryList><ParameterRefEntry parameterRef="x"/></EntryList></SequenceContainer>
+        </ContainerSet>
+      </TelemetryMetaData>
+      <CommandMetaData>
+        <ArgumentTypeSet>
+          <IntegerArgumentType name="u8a" signed="false"><IntegerDataEncoding sizeInBits="8"/></IntegerArgumentType>
+          <ArrayArgumentType name="arr" arrayTypeRef="u8a">
+            <DimensionList><Dimension>
+              <StartingIndex><FixedValue>0</FixedValue></StartingIndex>
+              <EndingIndex><DynamicValue><ArgumentInstanceRef argumentRef="N"/></DynamicValue></EndingIndex>
+            </Dimension></DimensionList>
+          </ArrayArgumentType>
+        </ArgumentTypeSet>
+        <MetaCommandSet>
+          <MetaCommand name="c">
+            <ArgumentList><Argument name="N" argumentTypeRef="u8a"/><Argument name="a" argumentTypeRef="arr"/></ArgumentList>
+          </MetaCommand>
+        </MetaCommandSet>
+      </CommandMetaData>
+    </SpaceSystem>"#;
+    assert!(parser::parse_strs(&[xtce]).is_err());
+    let mdb = parser::parse_strs_with(&[xtce], &parser::ParseOptions { commands: false }).unwrap();
+    let root = mdb.search_container("/tmo/p").unwrap();
+    assert_eq!(1, process(&mdb, &[7], root).unwrap().len());
+    assert!(mdb.commands.is_empty());
+}

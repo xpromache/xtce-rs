@@ -119,6 +119,7 @@ pub fn parse_str(mdb: &mut MissionDatabase, text: &str) -> Result<()> {
     let root_element = doc.root_element();
     let mut path = QualifiedName::empty();
     let mut name_tree = NameTree {
+        commands: true,
         name_db: mdb.name_db(),
         systems: HashMap::new(),
     };
@@ -144,6 +145,25 @@ pub fn parse_files(paths: &[&Path]) -> Result<MissionDatabase> {
 ///
 /// The documents are loaded together: references between them are resolved like in [parse_files].
 pub fn parse_strs(texts: &[&str]) -> Result<MissionDatabase> {
+    parse_strs_with(texts, &ParseOptions::default())
+}
+
+/// What to read from the XTCE documents
+#[derive(Debug, Clone)]
+pub struct ParseOptions {
+    /// read the CommandMetaData sections (default true); without, a telemetry-only MDB is built and the command
+    /// definitions are not even checked
+    pub commands: bool,
+}
+
+impl Default for ParseOptions {
+    fn default() -> Self {
+        ParseOptions { commands: true }
+    }
+}
+
+/// [parse_strs] with options
+pub fn parse_strs_with(texts: &[&str], options: &ParseOptions) -> Result<MissionDatabase> {
     let documents = texts
         .iter()
         .map(|text| roxmltree::Document::parse(text).map_err(XtceError::from))
@@ -151,6 +171,7 @@ pub fn parse_strs(texts: &[&str]) -> Result<MissionDatabase> {
 
     let mut mdb = MissionDatabase::new();
     let mut name_tree = NameTree {
+        commands: options.commands,
         name_db: mdb.name_db(),
         systems: HashMap::new(),
     };
