@@ -3,6 +3,13 @@ name = "xtce-rs"
 version = "0.1.0"
 authors = ["Nicolae Mihalache <xpromache@gmail.com>"]
 edition = "2021"
+license = "MIT"
+description ="Load XTCE mission databases, decode telemetry packets and encode telecommands"
+repository = "https://github.com/xpromache/xtce-rs"
+readme = "README.md"
+keywords = ["xtce", "telemetry", "telecommand", "space", "ccsds"]
+categories = ["aerospace", "encoding", "parser-implementations"]
+exclude = ["tools/", "test.sh"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
