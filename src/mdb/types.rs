@@ -407,6 +407,46 @@ impl MathOperator {
         })
     }
 
+    /// the name of the operator in XTCE (inverse of [MathOperator::from_xtce_name])
+    pub fn xtce_name(&self) -> &'static str {
+        use MathOperator::*;
+        match self {
+            Plus => "+",
+            Minus => "-",
+            Star => "*",
+            Div => "/",
+            Modulo => "%",
+            Pow => "^",
+            RevPow => "y^x",
+            Ln => "ln",
+            Log => "log",
+            Exp => "e^x",
+            Inv => "1/x",
+            Fact => "x!",
+            Tan => "tan",
+            Cos => "cos",
+            Sin => "sin",
+            Atan => "atan",
+            Acos => "acos",
+            Asin => "asin",
+            Tanh => "tanh",
+            Cosh => "cosh",
+            Sinh => "sinh",
+            Atanh => "atanh",
+            Acosh => "acosh",
+            Asinh => "asinh",
+            Abs => "abs",
+            LeftShift => "<<",
+            RightShift => ">>",
+            BitwiseOr => "|",
+            BitwiseAnd => "&",
+            Swap => "swap",
+            Drop => "drop",
+            Dup => "dup",
+            Over => "over",
+        }
+    }
+
     /// returns (number of stack elements consumed, number of stack elements produced)
     pub fn stack_effect(&self) -> (usize, usize) {
         use MathOperator::*;

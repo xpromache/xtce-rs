@@ -50,41 +50,11 @@ fn read_cases() -> Vec<Case> {
 
 /// formats a double like the Java Double.toString (or Float.toString if `float` is true)
 fn java_float(x: f64, float: bool) -> String {
-    if x.is_nan() {
-        return "NaN".into();
-    }
-    if x.is_infinite() {
-        return if x > 0.0 { "Infinity" } else { "-Infinity" }.into();
-    }
-    if x == 0.0 {
-        return if x.is_sign_negative() { "-0.0" } else { "0.0" }.into();
-    }
-    // the shortest representation that uniquely identifies the number, as in Java (since JDK 19)
-    let s = if float { format!("{:e}", x as f32) } else { format!("{:e}", x) };
-    let (mant, exp) = s.split_once('e').unwrap();
-    let exp: i32 = exp.parse().unwrap();
-    let (sign, mant) = match mant.strip_prefix('-') {
-        Some(m) => ("-", m),
-        None => ("", mant),
-    };
-    let digits: String = mant.chars().filter(|c| *c != '.').collect();
-    let abs = x.abs();
-    let body = if (1e-3..1e7).contains(&abs) {
-        if exp >= 0 {
-            let p = exp as usize + 1;
-            if digits.len() <= p {
-                format!("{}{}.0", digits, "0".repeat(p - digits.len()))
-            } else {
-                format!("{}.{}", &digits[..p], &digits[p..])
-            }
-        } else {
-            format!("0.{}{}", "0".repeat((-exp - 1) as usize), digits)
-        }
+    if float {
+        xtce_rs::format::java_float(x as f32)
     } else {
-        let frac = if digits.len() > 1 { &digits[1..] } else { "0" };
-        format!("{}.{}E{}", &digits[..1], frac, exp)
-    };
-    format!("{}{}", sign, body)
+        xtce_rs::format::java_double(x)
+    }
 }
 
 fn type_name(vt: ValueType) -> &'static str {

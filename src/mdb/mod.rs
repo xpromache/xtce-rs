@@ -249,7 +249,20 @@ impl NameDescription {
     pub fn new(name: NameIdx) -> NameDescription {
         NameDescription { name, short_description: None, long_description: None, aliases: Vec::new() }
     }
+
+    /// returns the alias in the given namespace, if any
+    pub fn alias(&self, namespace: &str) -> Option<&str> {
+        self.aliases.iter().find(|a| a.namespace == namespace).map(|a| a.alias.as_str())
+    }
+
+    /// the OPS name: the alias in the namespace "MDB:OPS Name" (like Yamcs `NameDescription.getOpsName`)
+    pub fn ops_name(&self) -> Option<&str> {
+        self.alias(OPS_NAME_NAMESPACE)
+    }
 }
+
+/// the alias namespace of the OPS names
+pub const OPS_NAME_NAMESPACE: &str = "MDB:OPS Name";
 
 #[derive(Debug)]
 pub enum DataSource {

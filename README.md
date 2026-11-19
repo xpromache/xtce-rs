@@ -32,6 +32,17 @@ println!("{}", hex::encode(&encoded.binary));
 
 `proc::containers::process(&mdb, packet, root)` decodes a single packet without state.
 
+`TmProcessor::process_with` takes `ProcessOptions`: with `details` it also returns, for each value, its bit offset
+and size in the packet and the container defining the entry, the extracted containers (`TmResult::packet_container`
+gives the packet name like the Yamcs packet viewer) and the applied alarm ranges; `algorithms: false` skips the
+algorithms.
+
+`parser::parse_strs` loads XTCE documents given as strings (no file system needed). The library builds for
+`wasm32-unknown-unknown`.
+
+`xtce_rs::format` prints values and calibrators like Yamcs (`Value.toString()`), including Java's
+`Double.toString`/`Float.toString` (`1.0E10`); checked against the JDK with `tools/javafmt`.
+
 The times are *instants*: milliseconds since 1970-01-01 TAI including the leap seconds, like the Yamcs internal
 time (see `xtce_rs::time` for conversions).
 
