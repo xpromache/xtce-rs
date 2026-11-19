@@ -94,3 +94,51 @@ fn units() {
     assert_eq!(1, dt.units.len());
     assert_eq!("A", dt.units[0].unit);
 }
+
+/// LinearAdjustment has optional slope (default 1) and intercept (default 0); the PUS example of Yamcs
+/// has `<LinearAdjustment intercept="-1"/>`
+#[test]
+fn linear_adjustment_without_slope() {
+    let xtce = r#"<SpaceSystem name="la" xmlns="http://www.omg.org/spec/XTCE/20180204">
+      <TelemetryMetaData>
+        <ParameterTypeSet>
+          <IntegerParameterType name="u8" signed="false">
+            <IntegerDataEncoding sizeInBits="8"/>
+          </IntegerParameterType>
+          <ArrayParameterType name="arr" arrayTypeRef="u8">
+            <DimensionList>
+              <Dimension>
+                <StartingIndex><FixedValue>0</FixedValue></StartingIndex>
+                <EndingIndex>
+                  <DynamicValue>
+                    <ParameterInstanceRef parameterRef="n"/>
+                    <LinearAdjustment intercept="-1"/>
+                  </DynamicValue>
+                </EndingIndex>
+              </Dimension>
+            </DimensionList>
+          </ArrayParameterType>
+        </ParameterTypeSet>
+        <ParameterSet>
+          <Parameter name="n" parameterTypeRef="u8"/>
+          <Parameter name="a" parameterTypeRef="arr"/>
+          <Parameter name="after" parameterTypeRef="u8"/>
+        </ParameterSet>
+        <ContainerSet>
+          <SequenceContainer name="p">
+            <EntryList>
+              <ParameterRefEntry parameterRef="n"/>
+              <ParameterRefEntry parameterRef="a"/>
+              <ParameterRefEntry parameterRef="after"/>
+            </EntryList>
+          </SequenceContainer>
+        </ContainerSet>
+      </TelemetryMetaData>
+    </SpaceSystem>"#;
+    let mdb = parser::parse_strs(&[xtce]).unwrap();
+    let root = mdb.search_container("/la/p").unwrap();
+    let r = process(&mdb, &[3, 10, 11, 12, 99], root).unwrap();
+    let after = r.iter().find(|pv| mdb.name2str(mdb.get_parameter(pv.pidx).name()) == "after").unwrap();
+    // 3 elements: indices 0..=n-1
+    assert_eq!("99", after.eng_value.to_string());
+}

@@ -318,7 +318,8 @@ pub(super) fn read_dynamic_value(
                 pref.replace(read_para_insta_ref(mdb, ctx, &cnode, allow_ignore)?);                
             }
             "LinearAdjustment" => {
-                let slope = read_mandatory_attribute::<f64>(&cnode, "slope")?;
+                // both optional in XTCE: slope 1, intercept 0
+                let slope = read_attribute::<f64>(&cnode, "slope")?.unwrap_or(1f64);
                 let intercept = read_attribute::<f64>(&cnode, "intercept")?.unwrap_or(0f64);
                 adjustment.replace(LinearAdjustment { slope, intercept });
             }
