@@ -10,7 +10,7 @@ use crate::{
 
 use super::{ProcCtx, Result};
 
-pub(crate) trait CriteriaEvaluator {
+pub(crate) trait CriteriaEvaluator: Send + Sync {
     fn evaluate(&self, ctx: &ProcCtx) -> MatchResult;
 }
 

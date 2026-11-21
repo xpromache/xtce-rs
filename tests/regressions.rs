@@ -227,3 +227,11 @@ fn time_binary_decoder() {
     assert_eq!(xtce_rs::value::Value::Timestamp(10_501).to_string(), values[0]);
     assert_eq!("7", values[1]);
 }
+
+/// the TM processor can be moved into another thread / tokio task (used by yamcs-gateway)
+#[test]
+fn tm_processor_is_send() {
+    fn assert_send<T: Send>() {}
+    assert_send::<xtce_rs::proc::tm::TmProcessor<'static>>();
+    assert_send::<xtce_rs::mdb::MissionDatabase>();
+}
